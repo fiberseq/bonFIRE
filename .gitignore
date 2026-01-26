@@ -1,0 +1,9 @@
+**.code-workspace
+.vscode
+.snakemake
+.ruff_cache
+.pixi
+.DS_Store
+results/**
+temp/**
+logs/**
