@@ -2,125 +2,55 @@ import os
 import sys
 import pandas as pd
 from snakemake.utils import min_version
-from pathlib import Path
 
 def get_pileup(wc):
-    return(input_tbl[input_tbl['run_name'] == wc.run].iloc[0]['pileup_path'])
-
-#def new_get_pileup(wc):
-#    fire_folder_path=input_tbl[input_tbl['sample_name'] == wc.run].iloc[0]['path_to_fire_output_folder']
-#    return str(next(Path(fire_folder_path).glob("*pileup.bed.gz")))
-
-#def get_peaks_file(wc):
-#    fire_folder_path=input_tbl[input_tbl['sample_name'] == wc.run].iloc[0]['path_to_fire_output_folder']
-#   return str(next(Path(fire_folder_path).glob("*peaks.bed.gz")))
-
-#def get_combined_fasta(wc):
-#    return(input_tbl[input_tbl['sample_name'] == wc.sample].iloc[0]['combined_fasta_path'])
-
-#def get_hap1_fasta_path(wc):
-#    return(input_tbl[input_tbl['sample_name'] == wc.sample].iloc[0]['hap1_fasta_path'])
-
-#def get_hap2_fasta_path(wc):
-#    return(input_tbl[input_tbl['sample_name'] == wc.sample].iloc[0]['hap2_fasta_path'])
-
-#def get_hap1_subtag(wc):
-#    return(input_tbl[input_tbl['sample_name'] == wc.sample].iloc[0]['hap1_orig_subtag'])
-
-#def get_hap2_subtag(wc):
-#    return(input_tbl[input_tbl['sample_name'] == wc.sample].iloc[0]['hap2_orig_subtag'])
+    return(sample_pileup_input_tbl[sample_pileup_input_tbl['run_name'] == wc.run].iloc[0]['pileup_path'])
 
 WORKFLOW_DIR=workflow.basedir
 
 global_output_dir=config.get("output_dir")
-sample=config.get("prefix")
-input_file = config.get("input_file")
-graph=config.get("graph", "NA")
+input_bed=config.get("input_bed")
+#input_bed=pd.read_csv(config.get("input_bed"), sep=r"\s+", keep_default_na=False)
 PATH_TO_FT = config.get("ft_path")
 FT_PARAM = int(config.get("ft_param", 1000))
+sample=config.get("prefix")
+graph=config.get("graph")
+fasta=config.get("fasta")
+graph_prefixes_input=config.get("graph_prefixes_input")
+sample_pileup_input=config.get("sample_pileup_input")
 chm13_fasta=config.get("CHM13_fasta_path")
-hg38_fasta=config.get("hg38_fasta_path")
-length_change_param=float(config.get("Peak_length_change_param", 1))
+length_change_param=float(config.get("Peak_length_change_param", .2))
 
-graphs_dir="f"{global_output_dir}/{sample}/graph"
+assemblies_surjected_onto_file=f"{global_output_dir}/{sample}/{sample}_list_of_surj_assemblies_in_order.txt"
+next_asm_file=f"{global_output_dir}/{sample}/next_asm.txt"
 
-input_tbl=pd.read_csv(input_file, sep=r"\s+", keep_default_na=False)
+graph_prefixes_input_tbl=pd.read_csv(config.get("graph_prefixes_input"), sep=r"\s+", keep_default_na=False, header=None)
 
-input_tbl["peaks_file"] = input_tbl["path_to_fire_output_folder"].apply(
-    lambda x: str(next(Path(x).glob("*peaks.bed.gz")))
-)
+#print(graph_prefixes_input_tbl)
 
-PEAKS_FILES_AND_NAMES = list(
-    zip(
-        input_file["peaks_file"],
-        input_file["sample_name"]
-    )
-)
+asm_wildcards = graph_prefixes_input_tbl.iloc[:, 1].tolist()
 
-input_tbl["pileup_path"] = input_tbl["path_to_fire_output_folder"].apply(
-    lambda x: str(next(Path(x).glob("*pileup.bed.gz")))
-)
+#print(sample_pileup_input)
 
-## make combined fasta and put and graph_prefixes_tbl
-hap1_fasta_tbl = input_tbl[
-    ["hap1_orig_subtag","hap1_in_graph", "hap1_fasta_path"]
-].drop_duplicates()
+sample_pileup_input_tbl=pd.read_csv(sample_pileup_input, sep=r"\s+", keep_default_na=False)
+sample_pileup_input_tbl_notNA = sample_pileup_input_tbl[sample_pileup_input_tbl.iloc[:, 3].notna()]
 
-hap2_fasta_tbl = input_tbl[
-    ["hap2_orig_subtag","hap2_in_graph", "hap2_fasta_path"]
-].drop_duplicates()
+#print(sample_pileup_input_tbl)
+#print(sample_pileup_input_tbl_notNA)
 
-hap1_fasta_tbl.columns = ["hap_subtag","graph_prefix", "fasta_path"]
-hap2_fasta_tbl.columns = ["hap_subtag","graph_prefix", "fasta_path"]
+pairs_1_3 = list(zip(sample_pileup_input_tbl.iloc[:, 0], sample_pileup_input_tbl.iloc[:, 2]))
+pairs_1_4 = list(zip(sample_pileup_input_tbl_notNA.iloc[:, 0], sample_pileup_input_tbl_notNA.iloc[:, 3]))
 
-combined_fasta_tbl = pd.concat(
-    [hap1_fasta_tbl, hap2_fasta_tbl],
-    ignore_index=True
-).drop_duplicates()
+all_sample_pileup_pairs = pairs_1_3 + pairs_1_4
 
-ALL_FASTAS=combined_fasta_tbl["fasta_path"].tolist()
-
-ref_fasta = {
-    'graph_prefix': ['CHM13', 'GRCh38'],
-    'fasta_path' : ['chm13_fasta', 'hg38_fasta']
-}
-ref_fasta = pd.DataFrame(ref_fasta)
-
-combined_fasta_tbl_w_refs= pd.concat(
-    [combined_fasta_tbl["graph_prefix", "fasta_path"], ref_fasta],
-    ignore_index=True
-)
-
-combined_fasta_tbl_w_refs = pd.concat([
-    combined_fasta_tbl_w_refs.iloc[[-2]],   # second-to-last row
-    combined_fasta_tbl_w_refs.iloc[:-2],    # everything except the last two rows
-    combined_fasta_tbl_w_refs.iloc[[-1]]    # last row
-]).reset_index(drop=True)
-
-graph_input_file=f"{global_output_dir}/{sample}/{sample}_graph_input.tsv"
-combined_fasta_tbl_w_refs.to_csv(graph_input_file, sep='\t', index=False, header=False)
-
-graph_prefixes_input = f"{global_output_dir}/{sample}/{sample}_graph_prefixed_input.tsv"
-combined_fasta_tbl.to_csv(graph_prefixes_input, sep='\t', index=False, header=False)
-
-## wildcard definitions
-run_wildcards=input_tbl["sample_name"].values.tolist()
-asm_wildcards = input_tbl[["hap1_in_graph", "hap2_in_graph"]].values.flatten().tolist()
+run_wildcards=sample_pileup_input_tbl.iloc[:, 0].tolist()
 
 wildcard_constraints:
     asm="|".join(asm_wildcards),
     run="|".join(run_wildcards)
 
-assemblies_surjected_onto_file=f"{global_output_dir}/{sample}/{sample}_list_of_surj_assemblies_in_order.txt"
-next_asm_file=f"{global_output_dir}/{sample}/next_asm.txt"
-
-pairs_1_3 = list(zip(input_tbl.iloc["sample_name"], sample_pileup_input_tbl.iloc["hap1_in_graph"]))
-pairs_1_4 = list(zip(input_tbl.iloc["sample_name"], sample_pileup_input_tbl.iloc["hap2_in_graph"]))
-
-all_sample_pileup_pairs = pairs_1_3 + pairs_1_4
-
-
-### OLD BELOW
+#print(run_wildcards)
+#print(asm_wildcards)
 
 CHM13_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/CHM13_global_peaks_surjected_onto_asms/{sample}_CHM13_global_peaks_surjected_onto_{asm}.bed" for asm in asm_wildcards]
 NonCHM13_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/nonCHM13_global_peaks_surjected_onto_asms/{sample}_nonCHM13_global_peaks_surjected_onto_{asm}.bed" for asm in asm_wildcards]
@@ -134,10 +64,6 @@ max_score_per_consensus_peak=[f"{global_output_dir}/{sample}/run_pileup_counts/{
 #print(max_score_per_consensus_peak)
 
 Target=[CHM13_global_peaks_surjected_onto_all_asm, NonCHM13_global_peaks_surjected_onto_all_asm]
-
-if graph=="NA":
-    graph = f"{graphs_dir}/{sample}.full_all_chrs.gbz"
-
 
 rule all:
     input:
@@ -168,28 +94,9 @@ rule all:
         f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
 
 
-rule combine_peaks:
-    input:
-        input_tbl["peaks_file"].tolist()
-    output:
-        combined_peaks_bed = f"{global_output_dir}/{sample}/{sample}_combined_peaks.bed.gz"
-    conda:
-        "envs/env.yml"
-    run:
-        import gzip
-
-        with gzip.open(combined_peaks_bed[0], "wt") as outfile:
-            for peak_file, sample_name in PEAKS:
-                with gzip.open(peak_file, "rt") as infile:
-                    for line in infile:
-                        fields = line.rstrip("\n").split("\t")
-                        outfile.write(
-                            "\t".join(fields[:3] + [sample_name]) + "\n"
-                        )
-
 rule make_bed_with_haps_and_peakIDs:
     input:
-        input_bed=rules.combine_peaks.output.combined_peaks_bed
+        input_bed=input_bed
     output:
         output_bed=f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs.bed.gz",
         output_bed_unzipped=f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs.bed"
@@ -243,155 +150,10 @@ rule make_bed_with_haps_and_peakIDs:
 
         """
 
-rule combine_fastas:
-    input:
-        ALL_FASTAS
-    output:
-        combined_fastas = temp(f"{global_output_dir}/{sample}/{sample}_combined_fastas.fa")
-    shell:
-        r"""
-        for f in {input}; do
-            if [[ "$f" == *.gz ]]; then
-                zcat "$f"
-            else
-                cat "$f"
-            fi
-        done > {output.combined_fastas}
-        """
-
-rule make_graph:
-    input:
-        graph_input = graph_input_file
-        #hap1_fasta_path = rules.make_fasta_files.output.hap1_fasta,
-        #hap2_fasta_path = rules.make_fasta_files.output.hap2_fasta,
-        #chm13_path=config.get("CHM13_fasta_path"),
-        #hg38_path=config.get("GRCh38_fasta_path")
-    output:
-        #cp_graph_input=f"{graphs_dir}/{{sample}}/{{sample}}_graph_input.txt",
-        cp_graph=f"{graphs_dir}/{sample}.gbz"
-    conda:
-        "envs/env.yml"
-    #params:
-    #    hap1_new_tag=get_hap1_new_tag,
-    #    hap2_new_tag=get_hap2_new_tag
-    threads: TEMP_THREADS
-    resources:
-        mem_mb=get_mem_graph,
-        runtime=60*24
-    shell:
-        """
-        if [ -d "{graphs_dir}/{wildcards.sample}/js" ]; then
-            rm -r {graphs_dir}/{wildcards.sample}/js
-        fi
-        #rm -r {graphs_dir}/{wildcards.sample}/js
-
-        cat {input.graph_input} > {graphs_dir}/{wildcards.sample}/inputs.txt
-
-        sample_list=$(cat {input.graph_input} | cut -f1) 
-
-        cactus-pangenome \
-        {graphs_dir}/{wildcards.sample}/js \
-        {graphs_dir}/{wildcards.sample}/inputs.txt \
-        --outDir {graphs_dir}/{wildcards.sample}/ \
-        --outName {wildcards.sample} \
-        --reference $sample_list \
-        --vcfReference $sample_list \
-        --defaultCores 4 \
-        --vcf full \
-        --giraffe full \
-        --gfa full \
-        --gbz full \
-        --filter 0 \
-        --noSplit \
-        --binariesMode singularity
-
-        """
-
-rule make_list_of_chrs_in_graph_for_modifying_graph:
-    input: 
-        #graph=get_graph
-        graph=rules.make_graph.output.cp_graph
-    output:
-        chrs_to_keep_list=temp(f"{graphs_dir}/{sample}-chrs_list_for_graph_mod.txt")
-    #params:
-    #    common_chr_tag = get_common_chr_tag,
-        #vg=f"{vg}"
-    conda:
-        "envs/env.yml"
-    threads: 1
-    resources:
-        mem_mb=10240,
-        runtime=30
-    shell:
-        """
-        #vg='singularity exec /mmfs1/gscratch/stergachislab/minkinaa/vg_v1.65.0.sif vg'
-        vg paths -M -x {input.graph} | grep -v CHM13 | grep -v GRCh38 | grep -v NAME | cut -f1 | uniq > {output.chrs_to_keep_list}
-        """
-
-rule make_fasta_of_missing_chrs:
-    input:
-        fasta=rules.combine_fastas.output.combined_fastas,
-        chrs_in_graph=rules.make_list_of_chrs_in_graph_for_modifying_graph.output.chrs_to_keep_list
-    output:
-        fasta_of_missing_chrs=temp(f"{graphs_dir}/{sample}-missing_chrs.fa")
-    #params:
-    #    hap1_orig_subtag=get_hap1_subtag,
-    #    hap2_orig_subtag=get_hap2_subtag,
-    #    hap1_new_tag=get_hap1_new_tag,
-    #    hap2_new_tag=get_hap2_new_tag
-    conda:
-        "envs/env.yml"
-    shell:
-        """
-        python {WORKFLOW_DIR}/scripts/make_fasta_of_missing_contigs_multiple_asms.py \
-            {input.chrs_in_graph} \
-            {input.fasta} \
-            graph_prefixes_input \
-            {output.fasta_of_missing_chrs} \
-        """
-
-rule make_graph_with_missing_chrs:
-    input:
-        missing_chr_fasta=rules.make_fasta_of_missing_chrs.output.fasta_of_missing_chrs,
-        orig_graph=rules.make_graph.output.cp_graph
-    output:
-        graph_of_missing_contigs=temp(f"{graphs_dir}/{sample}.missing_contigs_graph.vg"),
-        orig_graph_vg=temp(f"{graphs_dir}/{sample}.full.vg"),
-        full_graph_vg=temp(f"{graphs_dir}/{sample}.full_graph_w_all_contigs.vg"),
-        full_graph_gfa=temp(f"{graphs_dir}/{sample}.full_graph_w_all_contigs.gfa"),
-        full_graph=f"{graphs_dir}/{sample}.full_all_chrs.gbz"
-    conda:
-        "envs/env.yml"
-    resources:
-        mem_mb=50000,
-        runtime=60*2
-    shell:
-        """
-        LINE_COUNT=$(wc -l < {input.missing_chr_fasta})
-        echo $LINE_COUNT
-
-        if [ $LINE_COUNT -gt 1 ]; then
-            vg construct -r {input.missing_chr_fasta} > {output.graph_of_missing_contigs}
-            vg convert --packed-out --no-translation {input.orig_graph} > {output.orig_graph_vg}
-            vg combine {output.orig_graph_vg} {output.graph_of_missing_contigs} > {output.full_graph_vg}
-            vg convert -f {output.full_graph_vg} > {output.full_graph_gfa}
-            vg gbwt -G {output.full_graph_gfa} --gbz-format -g {output.full_graph}
-        else
-            #vg convert --packed-out --no-translation {input.orig_graph} > {output.orig_graph_vg}
-            # make files that will be deleted so rule doesn't crash
-            touch {output.graph_of_missing_contigs}
-            touch {output.orig_graph_vg}
-            touch {output.full_graph_vg}
-            touch {output.full_graph_gfa}
-            cp {input.orig_graph} {output.full_graph}
-        fi
-
-        """
-
 rule move_peaks_to_chm13:
     input:
         graph=graph,
-        fasta=rules.combine_fastas.output.combined_fastas,
+        fasta=fasta,
         bed=rules.make_bed_with_haps_and_peakIDs.output.output_bed,
         graph_prefixes_input=graph_prefixes_input
     output:
@@ -465,7 +227,7 @@ rule make_untransferred_peaks_list:
 rule make_gam_of_untransferred_peaks:
     input:
         graph=graph,
-        fasta=rules.combine_fastas.output.combined_fastas,
+        fasta=fasta,
         bed=rules.make_untransferred_peaks_list.output.orig_bed_annotated_not_surjected,
         graph_prefixes_input=graph_prefixes_input
     output:
@@ -664,7 +426,7 @@ rule make_NONchm13_global_peaks_gam:
     input:
         bed=rules.call_global_peaks_on_nonCHM13.output.NONchm13_peaks_5col_w_peak_id,
         graph=graph,
-        fasta=rules.combine_fastas.output.combined_fastas,
+        fasta=fasta,
         graph_prefixes_input=graph_prefixes_input
     output:
         fibertigs_out=temp(f"{global_output_dir}/{sample}/{sample}_NonCHM13_TEMP_peaks_fibertigs.bam"),
@@ -991,7 +753,7 @@ rule intersect_cons_surjected_peaks_w_consensus_peaks:
 rule get_native_peak_sequences:
     input:
         combined_transferred_peaks_bed=rules.combine_all_transferred_peak_files.output.combined_out,
-        fasta=rules.combine_fastas.output.combined_fastas
+        fasta=fasta
     output:
         seq_out=f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed"
     resources:
