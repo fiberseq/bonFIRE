@@ -5,7 +5,7 @@ from snakemake.utils import min_version
 from pathlib import Path
 
 def get_pileup(wc):
-    return(input_tbl[input_tbl['run_name'] == wc.run].iloc[0]['pileup_path'])
+    return(input_tbl[input_tbl['sample_name'] == wc.run].iloc[0]['pileup_path'])
 
 #def new_get_pileup(wc):
 #    fire_folder_path=input_tbl[input_tbl['sample_name'] == wc.run].iloc[0]['path_to_fire_output_folder']
@@ -41,10 +41,14 @@ FT_PARAM = int(config.get("ft_param", 1000))
 chm13_fasta=config.get("CHM13_fasta_path")
 hg38_fasta=config.get("hg38_fasta_path")
 length_change_param=float(config.get("Peak_length_change_param", 1))
+TEMP_THREADS=int(config.get("threads", 32))
 
-graphs_dir="f"{global_output_dir}/{sample}/graph"
+graphs_dir=f"{global_output_dir}/{sample}/graph"
+Path(f"{global_output_dir}/{sample}").mkdir(parents=True, exist_ok=True)
 
 input_tbl=pd.read_csv(input_file, sep=r"\s+", keep_default_na=False)
+
+print(input_tbl)
 
 input_tbl["peaks_file"] = input_tbl["path_to_fire_output_folder"].apply(
     lambda x: str(next(Path(x).glob("*peaks.bed.gz")))
@@ -52,8 +56,8 @@ input_tbl["peaks_file"] = input_tbl["path_to_fire_output_folder"].apply(
 
 PEAKS_FILES_AND_NAMES = list(
     zip(
-        input_file["peaks_file"],
-        input_file["sample_name"]
+        input_tbl["peaks_file"],
+        input_tbl["sample_name"]
     )
 )
 
@@ -87,7 +91,7 @@ ref_fasta = {
 ref_fasta = pd.DataFrame(ref_fasta)
 
 combined_fasta_tbl_w_refs= pd.concat(
-    [combined_fasta_tbl["graph_prefix", "fasta_path"], ref_fasta],
+    [combined_fasta_tbl[["graph_prefix", "fasta_path"]], ref_fasta],
     ignore_index=True
 )
 
@@ -114,8 +118,8 @@ wildcard_constraints:
 assemblies_surjected_onto_file=f"{global_output_dir}/{sample}/{sample}_list_of_surj_assemblies_in_order.txt"
 next_asm_file=f"{global_output_dir}/{sample}/next_asm.txt"
 
-pairs_1_3 = list(zip(input_tbl.iloc["sample_name"], sample_pileup_input_tbl.iloc["hap1_in_graph"]))
-pairs_1_4 = list(zip(input_tbl.iloc["sample_name"], sample_pileup_input_tbl.iloc["hap2_in_graph"]))
+pairs_1_3 = list(zip(input_tbl["sample_name"], input_tbl["hap1_in_graph"]))
+pairs_1_4 = list(zip(input_tbl["sample_name"], input_tbl["hap2_in_graph"]))
 
 all_sample_pileup_pairs = pairs_1_3 + pairs_1_4
 
@@ -173,8 +177,6 @@ rule combine_peaks:
         input_tbl["peaks_file"].tolist()
     output:
         combined_peaks_bed = f"{global_output_dir}/{sample}/{sample}_combined_peaks.bed.gz"
-    conda:
-        "envs/env.yml"
     run:
         import gzip
 
@@ -276,24 +278,24 @@ rule make_graph:
     #    hap2_new_tag=get_hap2_new_tag
     threads: TEMP_THREADS
     resources:
-        mem_mb=get_mem_graph,
+        mem_mb=200000,
         runtime=60*24
     shell:
         """
-        if [ -d "{graphs_dir}/{wildcards.sample}/js" ]; then
-            rm -r {graphs_dir}/{wildcards.sample}/js
+        if [ -d "{graphs_dir}/js" ]; then
+            rm -r {graphs_dir}/js
         fi
-        #rm -r {graphs_dir}/{wildcards.sample}/js
+        #rm -r {graphs_dir}/js
 
-        cat {input.graph_input} > {graphs_dir}/{wildcards.sample}/inputs.txt
+        cat {input.graph_input} > {graphs_dir}/inputs.txt
 
         sample_list=$(cat {input.graph_input} | cut -f1) 
 
         cactus-pangenome \
-        {graphs_dir}/{wildcards.sample}/js \
-        {graphs_dir}/{wildcards.sample}/inputs.txt \
-        --outDir {graphs_dir}/{wildcards.sample}/ \
-        --outName {wildcards.sample} \
+        {graphs_dir}/js \
+        {graphs_dir}/inputs.txt \
+        --outDir {graphs_dir}/ \
+        --outName {sample} \
         --reference $sample_list \
         --vcfReference $sample_list \
         --defaultCores 4 \
