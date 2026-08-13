@@ -20,3 +20,10 @@ dependencies:
   - importlib-metadata
   #- vg==1.65
   - cactus==2.9.9
+  - r-base=4.3
+  - bioconductor-karyoploter
+  - r-ggplot2
+  - r-tidyverse
+  - r-data.table
+  - r-devtools
+  - r-r.utils

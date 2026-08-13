@@ -1,0 +1,27 @@
+#!/bin/bash
+
+bed=$1
+graph=$2
+fasta=$3
+PATH_TO_FT=$4
+ft_param=$5
+graph_prefixes_input=$6
+
+fibertigs_out=$7
+prepare_for_inject_out=$8
+gam=$9
+scripts_dir=${10}
+
+echo "Making fibertigs bam"
+$PATH_TO_FT pg-inject $fasta -s $ft_param \
+            --bed $bed > $fibertigs_out
+
+echo "Fixing chr names to match graph"
+python ${scripts_dir}/260121_peakClust_prepare_bam_for_inject.py \
+${graph_prefixes_input} \
+$fibertigs_out \
+$prepare_for_inject_out
+
+echo "Running inject"
+vg inject -x $graph -o gam -t32 $prepare_for_inject_out > $gam
+

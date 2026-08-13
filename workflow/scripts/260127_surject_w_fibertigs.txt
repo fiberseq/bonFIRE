@@ -1,0 +1,25 @@
+#!/bin/bash
+
+graph=$1
+PATH_TO_FT=$2
+graph_prefixes_input=$3
+
+gam=$4
+surjected=$5
+surj_final=$6
+bed_final=$7
+scripts_dir=$8
+
+asm_to_surject_onto=$9
+
+echo "Running surject"
+vg surject -x $graph  -b $gam -n $asm_to_surject_onto  > $surjected
+
+echo "Processing surjected file"
+python ${scripts_dir}/260121_peakClust_process_after_surject.py \
+${graph_prefixes_input} \
+$surjected \
+$surj_final
+
+echo "Extracting bed"
+$PATH_TO_FT pg-inject $surj_final --extract > $bed_final

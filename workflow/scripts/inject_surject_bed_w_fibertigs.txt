@@ -1,0 +1,47 @@
+#!/bin/bash
+
+bed=$1
+graph=$2
+fasta=$3
+PATH_TO_FT=$4
+ft_param=$5
+graph_prefixes_input=$6
+
+fibertigs_out=$7
+prepare_for_inject_out=$8
+gam=$9
+surjected=${10}
+surj_final=${11}
+bed_final=${12}
+scripts_dir=${13}
+
+asm_to_surject_onto=${14}
+
+echo "Making fibertigs bam"
+$PATH_TO_FT pg-inject $fasta -s $ft_param \
+            --bed $bed > $fibertigs_out
+
+echo "Fixing chr names to match graph"
+python ${scripts_dir}/260121_peakClust_prepare_bam_for_inject.py \
+${graph_prefixes_input} \
+$fibertigs_out \
+$prepare_for_inject_out
+
+echo "Running inject"
+vg inject -x $graph -o gam -t32 $prepare_for_inject_out > $gam
+
+echo "Running surject"
+vg surject -x $graph  -b $gam -n $asm_to_surject_onto  > $surjected
+
+echo "Processing surjected file"
+python ${scripts_dir}/260121_peakClust_process_after_surject.py \
+${graph_prefixes_input} \
+$surjected \
+$surj_final
+
+echo "Extracting bed"
+$PATH_TO_FT pg-inject $surj_final --extract > $bed_final
+
+
+
+

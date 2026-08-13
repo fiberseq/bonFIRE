@@ -1,0 +1,13 @@
+name: karyoploter_env
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - r-base=4.3
+  - bioconductor-karyoploter
+  - r-ggplot2
+  - r-tidyverse
+  - r-data.table
+  - r-devtools
+  - r-r.utils
