@@ -1,0 +1,9 @@
+output_dir: /mmfs1/gscratch/stergachislab/minkinaa/projects/multisample_cluster_peaks/tests/new_pipeline_test                                                                     
+prefix: SMHT043_Test_GraphProvided    
+input_file: /mmfs1/gscratch/stergachislab/minkinaa/projects/multisample_cluster_peaks/tests/new_pipeline_test/cons_peak_calling_new_input_sample.txt                                                                                                                               
+ft_path: /mmfs1/gscratch/stergachislab/mvollger/projects/dev-fibertools-rs/target/release/ft                                                                   
+ft_param: 1000
+graph: /mmfs1/gscratch/stergachislab/SMAHT/graphs/SMHT043/SMHT043.full_all_chrs.gbz
+CHM13_fasta_path: /mmfs1/gscratch/stergachislab/assemblies/T2Tv2.0_maskedY.fa
+hg38_fasta_path: /mmfs1/gscratch/stergachislab/assemblies/hg38.analysisSet.fa
+Peak_length_change_param: 1

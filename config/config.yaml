@@ -1,1 +1,10 @@
-sample: "a"
+output_dir: /mmfs1/gscratch/stergachislab/HPRC/fiber-seq-pilot/HLA_graphs/snakemake_tests_2
+prefix: HLA-DQB1-10kb
+ft_path: /mmfs1/gscratch/stergachislab/mvollger/projects/dev-fibertools-rs/target/release/ft
+ft_param: 1000
+input_bed: /mmfs1/gscratch/stergachislab/HPRC/HLA/Peak_Clustering/peaks_and_transferred_peak_files/HLA-DQB1-10kb/HLA-DQB1-10kb_all_original_peaks_4col.bed
+graph_prefixes_input: /mmfs1/gscratch/stergachislab/HPRC/fiber-seq-pilot/HLA_graphs/alg_dev/sm_input_file.txt
+sample_pileup_input: /mmfs1/gscratch/stergachislab/HPRC/fiber-seq-pilot/HLA_graphs/alg_dev/all_samples_and_pileup_paths.txt
+fasta: /mmfs1/gscratch/stergachislab/HPRC/fiber-seq-pilot/HLA_graphs/graph_no_vcfs/chr6_graph_combined_fasta.fa
+graph: /mmfs1/gscratch/stergachislab/HPRC/fiber-seq-pilot/HLA_graphs/graph_no_vcfs/FiberHPRC_chr6.full.gbz 
+CHM13_fasta_path: /mmfs1/gscratch/stergachislab/assemblies/T2Tv2.0_maskedY.fa

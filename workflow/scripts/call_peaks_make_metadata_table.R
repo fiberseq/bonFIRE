@@ -114,7 +114,7 @@ if(1 == 0){
   surj_peak_cons_peak_intersect=read.table(paste0(input_dir,"All_HPRC_peaks_NewGraph_w_HG002_all_orig_surjected_peaks_intersect_consensus_peaks.bed"), sep="\t", header=F, stringsAsFactors = F, comment.char = "")
   colnames(surj_peak_cons_peak_intersect) = c("chr_surj", "start_surj", "end_surj", "sample_chr_id", "peak_id_orig", "chr_cons", "start_cons", "end_cons", "peak_id_cons" )
   
-  peak_sequence_file = read.table("/mmfs1/gscratch/stergachislab/HPRC/fiber-seq-pilot/HLA_graphs/peak_calling_all_chrs/All_HPRC_peaks_NewGraph_w_HG002/All_HPRC_peaks_NewGraph_w_HG002_transferred_cons_peaks_native_sequences_from_main_output.bed", sep="\t", header=F, stringsAsFactors = F, comment.char = "")
+  peak_sequence_file = read.table(paste0(input_dir,"All_HPRC_peaks_NewGraph_w_HG002_transferred_cons_peaks_native_sequences_from_main_output.bed", sep="\t", header=F, stringsAsFactors = F, comment.char = ""))
   colnames(peak_sequence_file) = c("asm_chr", "asm_start", "asm_end", "cons_peak_id", "seq")
   peak_sequence_file$asm_peak_id = paste0(peak_sequence_file$asm_chr, "_", peak_sequence_file$asm_start, "_", peak_sequence_file$asm_end)
 }
@@ -246,74 +246,67 @@ aggreg_by_cons_peak_2 = as.data.frame(surj_peak_cons_peak_intersect_mult_to_one_
                                         summarise(vals = list(c(rbind(peak_id_orig, chr_orig, start_orig, end_orig))), .groups="drop") %>%
                                         unnest_wider(vals, names_sep = ""))
 
-colnames(aggreg_by_cons_peak_2) = c("sample_graphHap_peak", "peak_id_1", "orig_chr_1","orig_start_1", "orig_end_1", "peak_id_2", "orig_chr_2","orig_start_2", "orig_end_2")
-cols_to_convert <- c("orig_start_1", "orig_end_1", "orig_start_2", "orig_end_2")
-aggreg_by_cons_peak_2[cols_to_convert] <- lapply(aggreg_by_cons_peak_2[cols_to_convert], as.numeric)
-aggreg_by_cons_peak_2$start_diff =aggreg_by_cons_peak_2$orig_start_2-aggreg_by_cons_peak_2$orig_start_1
-aggreg_by_cons_peak_2$space_between_peaks = aggreg_by_cons_peak_2$orig_start_2-aggreg_by_cons_peak_2$orig_end_1
-aggreg_by_cons_peak_2$share_orig_chr = FALSE
-aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$orig_chr_1 == aggreg_by_cons_peak_2$orig_chr_2),]$share_orig_chr = TRUE
-
-aggreg_by_cons_peak_2$surj_peak_length = apply(aggreg_by_cons_peak_2[,"sample_graphHap_peak",drop = F],1,return_surj_peak_length)
-
-aggreg_by_cons_peak_2$dist_less_than_cons_peak = FALSE
-aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$space_between_peaks < aggreg_by_cons_peak_2$surj_peak_length),]$dist_less_than_cons_peak = TRUE
-
-aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE = aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$dist_less_than_cons_peak == FALSE | aggreg_by_cons_peak_2$share_orig_chr == FALSE),]
-aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$surj_chr = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,"sample_graphHap_peak",drop = F], 1, return_surj_chr)
-aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$cons_peak = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,"sample_graphHap_peak",drop = F], 1, return_cons_peak)
-
-
-
-#sum(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$cons_peak %in% updated_tbl$consensus_peak_id)
-
-#aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$sample_asm_id = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,"samp_chr_consPeak",drop = F],1,return_sample_asm_id)
-
-#aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$samp_hap_id = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,c("samp_chr_consPeak", "peak_id_1"),drop = F], 1, return_samp_hap_id, conversion_table = sample_prefix_file)
-
-#unique_updated_tbl = unique(updated_tbl$sample_id)
-#unique_aggreg = unique(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$samp_hap_id)
-#length(unique_updated_tbl)
-#length(unique_aggreg )
+if(nrow(aggreg_by_cons_peak_2) > 0){
+  colnames(aggreg_by_cons_peak_2) = c("sample_graphHap_peak", "peak_id_1", "orig_chr_1","orig_start_1", "orig_end_1", "peak_id_2", "orig_chr_2","orig_start_2", "orig_end_2")
+  cols_to_convert <- c("orig_start_1", "orig_end_1", "orig_start_2", "orig_end_2")
+  aggreg_by_cons_peak_2[cols_to_convert] <- lapply(aggreg_by_cons_peak_2[cols_to_convert], as.numeric)
+  aggreg_by_cons_peak_2$start_diff =aggreg_by_cons_peak_2$orig_start_2-aggreg_by_cons_peak_2$orig_start_1
+  aggreg_by_cons_peak_2$space_between_peaks = aggreg_by_cons_peak_2$orig_start_2-aggreg_by_cons_peak_2$orig_end_1
+  aggreg_by_cons_peak_2$share_orig_chr = FALSE
+  aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$orig_chr_1 == aggreg_by_cons_peak_2$orig_chr_2),]$share_orig_chr = TRUE
+  
+  aggreg_by_cons_peak_2$surj_peak_length = apply(aggreg_by_cons_peak_2[,"sample_graphHap_peak",drop = F],1,return_surj_peak_length)
+  
+  aggreg_by_cons_peak_2$dist_less_than_cons_peak = FALSE
+  aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$space_between_peaks < aggreg_by_cons_peak_2$surj_peak_length),]$dist_less_than_cons_peak = TRUE
+  
+  aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE = aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$dist_less_than_cons_peak == FALSE | aggreg_by_cons_peak_2$share_orig_chr == FALSE),]
+  aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$surj_chr = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,"sample_graphHap_peak",drop = F], 1, return_surj_chr)
+  aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$cons_peak = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,"sample_graphHap_peak",drop = F], 1, return_cons_peak)
+  
+}
 
 updated_tbl$sample_id_peak_id_TEMP_COL = paste0(updated_tbl$sample_id, "-", updated_tbl$consensus_peak_id)
 
-#aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$sample_id_peak_id_TEMP_COL = paste0(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$samp_hap_id, "-", aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$cons_peak)
-
-#updated_tbl$num_overlapping_orig_peaks = 1
-#updated_tbl[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$sample_graphHap_peak),]$num_overlapping_orig_peaks = 2
-
-
 ### greater than 2:
 
-surj_peak_cons_peak_intersect_mult_to_one_gr2$cons_peak_length = surj_peak_cons_peak_intersect_mult_to_one_gr2$end_cons-surj_peak_cons_peak_intersect_mult_to_one_gr2$start_cons
-
-unique_sample_peaks = unique(surj_peak_cons_peak_intersect_mult_to_one_gr2$sample_graphHap_peak)
-
-num_peaks_col = c()
-peak_names = c()
-
-for(i in 1:length(unique_sample_peaks)){
-  if(i%%100 == 0){
-    print(i)
-  }
-  temp_samp_peak = unique_sample_peaks[i]
-  temp_tbl = surj_peak_cons_peak_intersect_mult_to_one_gr2[which(surj_peak_cons_peak_intersect_mult_to_one_gr2$sample_graphHap_peak == temp_samp_peak),]
-  temp_tbl_ord = temp_tbl[order(temp_tbl$start_orig),]
-  cons_len = as.numeric(temp_tbl_ord[1,"cons_peak_length"])
-  num_peaks = 1
-  for(i in 2:nrow(temp_tbl)){
-    if(as.numeric(temp_tbl[i,"start_orig"])-as.numeric(temp_tbl[i-1,"end_orig"]) > cons_len){
-      num_peaks = num_peaks + 1
+if(nrow(aggreg_by_cons_peak_2) > 0){
+  surj_peak_cons_peak_intersect_mult_to_one_gr2$cons_peak_length = surj_peak_cons_peak_intersect_mult_to_one_gr2$end_cons-surj_peak_cons_peak_intersect_mult_to_one_gr2$start_cons
+  
+  unique_sample_peaks = unique(surj_peak_cons_peak_intersect_mult_to_one_gr2$sample_graphHap_peak)
+  
+  num_peaks_col = c()
+  peak_names = c()
+  
+  for(i in 1:length(unique_sample_peaks)){
+    if(i%%100 == 0){
+      print(i)
     }
+    temp_samp_peak = unique_sample_peaks[i]
+    temp_tbl = surj_peak_cons_peak_intersect_mult_to_one_gr2[which(surj_peak_cons_peak_intersect_mult_to_one_gr2$sample_graphHap_peak == temp_samp_peak),]
+    temp_tbl_ord = temp_tbl[order(temp_tbl$start_orig),]
+    cons_len = as.numeric(temp_tbl_ord[1,"cons_peak_length"])
+    num_peaks = 1
+    for(i in 2:nrow(temp_tbl)){
+      if(as.numeric(temp_tbl[i,"start_orig"])-as.numeric(temp_tbl[i-1,"end_orig"]) > cons_len){
+        num_peaks = num_peaks + 1
+      }
+    }
+    all_peaks = paste(temp_tbl_ord$peak_id_orig, collapse = ",")
+    peak_names = c(peak_names, all_peaks)
+    num_peaks_col = c(num_peaks_col, num_peaks)
   }
-  all_peaks = paste(temp_tbl_ord$peak_id_orig, collapse = ",")
-  peak_names = c(peak_names, all_peaks)
-  num_peaks_col = c(num_peaks_col, num_peaks)
+  
+  peak_id_and_num_peaks = as.data.frame(cbind(unique_sample_peaks, num_peaks_col, peak_names))
+  colnames(peak_id_and_num_peaks) = c("sample_graphHap_peak", "num_ov_peaks", "all_overlapping_peaks")
+} else {
+  peak_id_and_num_peaks <- data.frame(
+    sample_graphHap_peak = NULL,
+    num_ov_peaks = NULL,
+    all_overlapping_peaks = NULL
+  )
 }
 
-peak_id_and_num_peaks = as.data.frame(cbind(unique_sample_peaks, num_peaks_col, peak_names))
-colnames(peak_id_and_num_peaks) = c("sample_graphHap_peak", "num_ov_peaks", "all_overlapping_peaks")
 
 all_peaks_summary = surj_peak_cons_peak_intersect %>%
   group_by(sample_graphHap_peak) %>%
@@ -322,16 +315,23 @@ all_peaks_summary = as.data.frame(all_peaks_summary)
 
 updated_tbl$num_overlapping_orig_peaks = 0
 updated_tbl[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% surj_peak_cons_peak_intersect$sample_graphHap_peak),]$num_overlapping_orig_peaks = 1
-updated_tbl[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$sample_graphHap_peak),]$num_overlapping_orig_peaks = 2
+
+if(nrow(aggreg_by_cons_peak_2) > 0){
+  updated_tbl[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$sample_graphHap_peak),]$num_overlapping_orig_peaks = 2
+}
 
 updated_tbl_2_or_less = updated_tbl[which(!(updated_tbl$sample_id_peak_id_TEMP_COL %in% peak_id_and_num_peaks$sample_graphHap_peak)),]
-updated_tbl_gr_2 = updated_tbl[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% peak_id_and_num_peaks$sample_graphHap_peak),]
 
-peak_id_and_num_peaks_ord = peak_id_and_num_peaks[match(updated_tbl_gr_2$sample_id_peak_id_TEMP_COL,peak_id_and_num_peaks$sample_graphHap_peak),]
+if(nrow(aggreg_by_cons_peak_2) > 0){
+  updated_tbl_gr_2 = updated_tbl[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% peak_id_and_num_peaks$sample_graphHap_peak),]
+  peak_id_and_num_peaks_ord = peak_id_and_num_peaks[match(updated_tbl_gr_2$sample_id_peak_id_TEMP_COL,peak_id_and_num_peaks$sample_graphHap_peak),]
+  updated_tbl_gr_2$num_overlapping_orig_peaks = peak_id_and_num_peaks_ord$num_ov_peaks
+  updated_tbl = as.data.frame(rbind(updated_tbl_2_or_less, updated_tbl_gr_2))
+} else {
+  updated_tbl = updated_tbl_2_or_less
+}
 
-updated_tbl_gr_2$num_overlapping_orig_peaks = peak_id_and_num_peaks_ord$num_ov_peaks
-
-updated_tbl = as.data.frame(rbind(updated_tbl_2_or_less, updated_tbl_gr_2))
+#updated_tbl = as.data.frame(rbind(updated_tbl_2_or_less, updated_tbl_gr_2))
 
 updated_tbl_non0 = updated_tbl[which(updated_tbl$num_overlapping_orig_peaks > 0),]
 updated_tbl_0 = updated_tbl[which(updated_tbl$num_overlapping_orig_peaks == 0),]
@@ -353,6 +353,9 @@ updated_tbl = as.data.frame(rbind(updated_tbl_non0,updated_tbl_0))
 peak_sequence_file_2col = unique(peak_sequence_file[,c("asm_peak_id", "seq")])
 
 updated_tbl = left_join(updated_tbl,peak_sequence_file_2col, by = "asm_peak_id")
+
+updated_tbl <- updated_tbl %>%
+  dplyr::select(-sample_id_peak_id_TEMP_COL)
 
 write.table(updated_tbl, paste0(output_dir, prefix, "_final_tbl_w_metadata.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t")
 

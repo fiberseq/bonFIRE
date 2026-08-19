@@ -42,6 +42,7 @@ chm13_fasta=config.get("CHM13_fasta_path")
 hg38_fasta=config.get("hg38_fasta_path")
 length_change_param=float(config.get("Peak_length_change_param", 1))
 TEMP_THREADS=int(config.get("threads", 32))
+SPLIT_GRAPH=config.get("split_graph", "FALSE")
 
 graphs_dir=f"{global_output_dir}/{sample}/graph"
 Path(f"{global_output_dir}/{sample}").mkdir(parents=True, exist_ok=True)
@@ -86,7 +87,7 @@ ALL_FASTAS=combined_fasta_tbl["fasta_path"].tolist()
 
 ref_fasta = {
     'graph_prefix': ['CHM13', 'GRCh38'],
-    'fasta_path' : ['chm13_fasta', 'hg38_fasta']
+    'fasta_path' : [chm13_fasta, hg38_fasta]
 }
 ref_fasta = pd.DataFrame(ref_fasta)
 
@@ -145,30 +146,12 @@ if graph=="NA":
 
 rule all:
     input:
-        #f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13_w_FullyAnnotated.bed"
-        #f"{global_output_dir}/{sample}/{sample}_NonCHM13_shared_peaks.bed",
-        #f"{global_output_dir}/{sample}/{sample}_CHM13_shared_peaks.bed",
-        #f"{global_output_dir}/{sample}/{sample}_NonCHM13_shared_peaks_6col.bed",
-        #f"{global_output_dir}/{sample}/{sample}_CHM13_shared_peaks_6col.bed"
-        #f"{global_output_dir}/{sample}/{sample}_NonCHM13_global_peaks.gam",
-        #f"{global_output_dir}/{sample}/{sample}_CHM13_global_peaks.gam",
-        #f"{global_output_dir}/{sample}/nonCHM13_global_peaks_surjected_onto_asms/{sample}_nonCHM13_global_peaks_surjected_onto_{{asm}}.bed",
-        #f"{global_output_dir}/{sample}/CHM13_global_peaks_surjected_onto_asms/{sample}_CHM13_global_peaks_surjected_onto_{{asm}}.bed"
-        #Target
-        #combined_global_peaks_surjected_onto_all_asm,
-        #run_modified_pileup,
-        #overlap_outs,
-        #f"{global_output_dir}/{sample}/{sample}_ALL_consensus_peaks_combined.bed",
-        #max_score_per_consensus_peak,
-        #f"{global_output_dir}/{sample}/{sample}_NonCHM13_consensus_peaks_moved_to_GRCh38.bed",
-        #f"{global_output_dir}/{sample}/{sample}_CHM13_consensus_peaks_moved_to_GRCh38.bed",
-        f"{global_output_dir}/{sample}/{sample}_All_consensus_peaks_moved_to_GRCh38.bed",
-        f"{global_output_dir}/{sample}/{sample}_orig_called_peaks_intersect_transferred_consensus_peaks.bed",
-        f"{global_output_dir}/{sample}/{sample}_all_orig_surjected_peaks_intersect_consensus_peaks.bed",
-        #f"{global_output_dir}/{sample}/{sample}_all_peaks_surjected_onto_consensus_assemblies_5col_for_intersect.bed",
-        f"{global_output_dir}/{sample}/{sample}_max_score_per_peak_all_samples.bed",
-        f"{global_output_dir}/{sample}/{sample}_combined_tranferred_peaks_all_samples.bed",
-        f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed",
+        #f"{global_output_dir}/{sample}/{sample}_All_consensus_peaks_moved_to_GRCh38.bed",
+        #f"{global_output_dir}/{sample}/{sample}_orig_called_peaks_intersect_transferred_consensus_peaks.bed",
+        #f"{global_output_dir}/{sample}/{sample}_all_orig_surjected_peaks_intersect_consensus_peaks.bed",
+        #f"{global_output_dir}/{sample}/{sample}_max_score_per_peak_all_samples.bed",
+        #f"{global_output_dir}/{sample}/{sample}_combined_tranferred_peaks_all_samples.bed",
+        #f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed",
         f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
 
 
@@ -180,9 +163,10 @@ rule combine_peaks:
     run:
         import gzip
 
-        with gzip.open(combined_peaks_bed[0], "wt") as outfile:
-            for peak_file, sample_name in PEAKS:
+        with gzip.open(output.combined_peaks_bed, "wt") as outfile:
+            for peak_file, sample_name in PEAKS_FILES_AND_NAMES:
                 with gzip.open(peak_file, "rt") as infile:
+                    next(infile)
                     for line in infile:
                         fields = line.rstrip("\n").split("\t")
                         outfile.write(
