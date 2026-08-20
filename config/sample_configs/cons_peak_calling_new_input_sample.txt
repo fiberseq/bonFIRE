@@ -1,0 +1,2 @@
+sample_name	path_to_fire_output_folder	hap1_orig_subtag	hap2_orig_subtag	hap1_in_graph	hap2_in_graph	hap1_fasta_path	hap2_fasta_path
+SMHT043_aortaab	/mmfs1/gscratch/stergachislab/SMAHT/FIRE/results/SMHT043/SMHT043_aortaab	SMHT043#1#	SMHT043#2#	SMHT043_1	SMHT043_2	/mmfs1/gscratch/stergachislab/assemblies/SMaHT/SMHT043/release/v1.0.0/assembly/DSA_SMHT043_v1.0.0_hap1.fasta	/mmfs1/gscratch/stergachislab/assemblies/SMaHT/SMHT043/release/v1.0.0/assembly/DSA_SMHT043_v1.0.0_hap2.fasta
