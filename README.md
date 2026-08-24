@@ -114,19 +114,34 @@ Many metadata columns are appended to this output to facilitate downstream analy
 The main output from this pipeline is called **[sample]_final_tbl_w_metadata.tsv** . All columns are described below, with the most commonly used columns starred (*).
 
 \***sample_id**: A sample id that distinguished between two haplotypes (e.g. TestSample_1, TestSample_2)
+
 \***consensus_peak_id**: An id defining a consensus peak region. These are genomic coordinates of the consensus peak region, from which one can infer the assembly on which they were initially defined. 	
+
 \***coverage**: number of reads overlapping this consensus peak region at the point of maximum accessibility
+
 \***fire_coverage**: number of reads with FIRE elements overlapping this consensus peak region at the point of maximum accessibility
+
 **score**:	an accessibility score at this point calculated during original FIRE peak calling and defined [here](https://fiberseq.github.io/fire/methods/aggregation.html). (Where a consensus peak was not able to be transferred to the assembly because there is no homologous region, the score column will have a value of -2.) I rarely use this column in downstream analyses, instead focusing on the raw fire_coverage/coverage calculation (in the fire_cov_OV_cov).
+
 **cons_chr**, **cons_start**, **cons_end**: consensus_peak_id, split into coordinates.
+
 \***fire_cov_OV_cov**: raw accessibility value calculated as fire_coverage/coverage
+
 **asm**: assembly associated with this sample 	
+
 **asm_chr**, asm_start, asm_end: coordinates of the consensus peak in the native assembly space. This is the genomic region from which we pull the 'coverage' and 'fire_coverage' values.
-**asm_peak_id**: the three previous columns, combined
+
+**asm_peak_id**: the three previous columns, combined 
+
 **hg38_chr**, **hg38_start**, **hg38_end**: consensus coordinates transferred to GRCh38. This information is useful for overlapping with annotations defined in GRCh38 coordinates. NAs in these columns mean that this consensus region has no homology in GRCh38.	
+
 **exists_in_hg38**: TRUE/FALSE. TRUE is values in the previous 3 columns are not NA
+
 **overlaps_original_called_peak**: TRUE if there was at least one peak overlapping this consensus peak location in the original FIRE dataset for this sample. This information should be used with caution, as differences in coverage between samples can impact whether a peak rose above the FDR threshold in the original FIRE calling scheme. 
+
 **num_overlapping_orig_peaks**: The number of originally called FIRE peaks that	overlap this consensus peak region. This can be informative for identifying structural differences that resulted in multiple distinct peaks being transferred to a single location on the assembly where the consensus peak was defined. This can happen, for example, when a duplication event results in multiple regions in one assembly being associated with a single region in another. Because the main purpose of this column is to flag these events, this number is corrected to only count as distinct peaks that are far enough apart from one another to plausibly arise from this type of event. 
-**orig_peaks_overlapping_consensus**: Positions of originally called peaks which overlap this consensus peak region. This can be useful for troubleshooting/identifying regions where structural differences may complicate direct comparison. *This set is NOT filtered for very nearby peaks as is done for calculating '**num_overlapping_orig_peaks**'; thus there are occasionally more peaks listed here than the number found in that column. 	
+
+**orig_peaks_overlapping_consensus**: Positions of originally called peaks which overlap this consensus peak region. This can be useful for troubleshooting/identifying regions where structural differences may complicate direct comparison. *This set is NOT filtered for very nearby peaks as is done for calculating '**num_overlapping_orig_peaks**'; thus there are occasionally more peaks listed here than the number found in that column. 
+
 **seq**: The underlying sequence of this consensus peak region. This can be useful in order to determine whether differences in accessibility are mediated by sequence changes. Keep in mind that the way assemblies are constructed may result in unsynchronized sequence complementarity. Thus, one must consider the reverse complement of sequences in order to compare between them. For an example of how to do this see this vignette (**TO DO**).
 
