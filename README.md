@@ -1,10 +1,4 @@
-# \<your workflow name\>
-
-[![Actions Status](https://github.com/mrvollger/SmkTemplate/workflows/CI/badge.svg)](https://github.com/mrvollger/SmkTemplate/actions)
-
-This is a Snakemake project template. The `Snakefile` is under `workflow`.
-
-[Slides](https://mrvollger.github.io/SmkTemplate/slides) describing and justifying the use of this template.
+# bonFIRE
 
 ## Install
 
@@ -14,6 +8,11 @@ You can then install the `pixi` environment by cloning this repository and runni
 
 ```bash
 pixi install
+```
+
+Next, install fibertools with the command below. 
+```bash
+conda install bioconda::fibertools-rs
 ```
 
 ## Usage
@@ -33,3 +32,5 @@ pixi run --manifest-path /path/to/snakemake/pixi.toml snakemake ...
 where you update `/path/to/snakemake/pixi.toml` to the path of the `pixi.toml` you cloned.
 
 And in place of `...` use all the normal Snakemake arguments for your workflow.
+
+## 
