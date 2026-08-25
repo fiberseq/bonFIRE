@@ -36,13 +36,15 @@ global_output_dir=config.get("output_dir")
 sample=config.get("prefix")
 input_file = config.get("input_file")
 graph=config.get("graph", "NA")
-PATH_TO_FT = config.get("ft_path")
+PATH_TO_FT = config.get("ft_path", "ft")
 FT_PARAM = int(config.get("ft_param", 1000))
 chm13_fasta=config.get("CHM13_fasta_path")
 hg38_fasta=config.get("hg38_fasta_path")
 length_change_param=float(config.get("Peak_length_change_param", 1))
 TEMP_THREADS=int(config.get("threads", 32))
-SPLIT_GRAPH=config.get("split_graph", "FALSE")
+SPLIT_GRAPH=config.get("split_graph", False)
+GRAPH_ONLY=config.get("make_graph_only", False)
+GRAPH_MEM=config.get("graph_mem", 300000)
 
 graphs_dir=f"{global_output_dir}/{sample}/graph"
 Path(f"{global_output_dir}/{sample}").mkdir(parents=True, exist_ok=True)
@@ -124,8 +126,7 @@ pairs_1_4 = list(zip(input_tbl["sample_name"], input_tbl["hap2_in_graph"]))
 
 all_sample_pileup_pairs = pairs_1_3 + pairs_1_4
 
-
-### OLD BELOW
+## Old stuff
 
 CHM13_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/CHM13_global_peaks_surjected_onto_asms/{sample}_CHM13_global_peaks_surjected_onto_{asm}.bed" for asm in asm_wildcards]
 NonCHM13_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/nonCHM13_global_peaks_surjected_onto_asms/{sample}_nonCHM13_global_peaks_surjected_onto_{asm}.bed" for asm in asm_wildcards]
@@ -143,6 +144,10 @@ Target=[CHM13_global_peaks_surjected_onto_all_asm, NonCHM13_global_peaks_surject
 if graph=="NA":
     graph = f"{graphs_dir}/{sample}.full_all_chrs.gbz"
 
+if GRAPH_ONLY == True:
+    All_Targets = f"{graphs_dir}/{sample}.full_all_chrs.gbz"
+else:
+    All_Targets = f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
 
 rule all:
     input:
@@ -152,8 +157,8 @@ rule all:
         #f"{global_output_dir}/{sample}/{sample}_max_score_per_peak_all_samples.bed",
         #f"{global_output_dir}/{sample}/{sample}_combined_tranferred_peaks_all_samples.bed",
         #f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed",
-        f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
-
+        #f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
+        All_Targets
 
 rule combine_peaks:
     input:
@@ -275,21 +280,38 @@ rule make_graph:
 
         sample_list=$(cat {input.graph_input} | cut -f1) 
 
-        cactus-pangenome \
-        {graphs_dir}/js \
-        {graphs_dir}/inputs.txt \
-        --outDir {graphs_dir}/ \
-        --outName {sample} \
-        --reference $sample_list \
-        --vcfReference $sample_list \
-        --defaultCores 4 \
-        --vcf full \
-        --giraffe full \
-        --gfa full \
-        --gbz full \
-        --filter 0 \
-        --noSplit \
-        --binariesMode singularity
+        if [[ "$SPLIT_GRAPH" == "False" ]]; then
+            cactus-pangenome \
+            {graphs_dir}/js \
+            {graphs_dir}/inputs.txt \
+            --outDir {graphs_dir}/ \
+            --outName {sample} \
+            --reference $sample_list \
+            --vcfReference $sample_list \
+            --defaultCores 4 \
+            --vcf full \
+            --giraffe full \
+            --gfa full \
+            --gbz full \
+            --filter 0 \
+            --noSplit \
+            --binariesMode singularity
+        else
+            cactus-pangenome \
+            {graphs_dir}/js \
+            {graphs_dir}/inputs.txt \
+            --outDir {graphs_dir}/ \
+            --outName {sample} \
+            --reference $sample_list \
+            --vcfReference $sample_list \
+            --defaultCores 4 \
+            --vcf full \
+            --giraffe full \
+            --gfa full \
+            --gbz full \
+            --filter 0 \
+            --binariesMode singularity
+        fi
 
         """
 
@@ -393,7 +415,7 @@ rule move_peaks_to_chm13:
         "envs/env.yml"
     threads: 32
     resources:
-        mem_mb=300000,
+        mem_mb=GRAPH_MEM,
         runtime=60*24
     shell:
         """
