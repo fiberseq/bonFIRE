@@ -53,9 +53,13 @@ input_tbl=pd.read_csv(input_file, sep=r"\s+", keep_default_na=False)
 
 print(input_tbl)
 
-input_tbl["peaks_file"] = input_tbl["path_to_fire_output_folder"].apply(
+if GRAPH_ONLY==False:
+    input_tbl["peaks_file"] = input_tbl["path_to_fire_output_folder"].apply(
     lambda x: str(next(Path(x).glob("*peaks.bed.gz")))
-)
+    )
+else: 
+    input_tbl["peaks_file"] = "NA"
+
 
 PEAKS_FILES_AND_NAMES = list(
     zip(
@@ -64,9 +68,12 @@ PEAKS_FILES_AND_NAMES = list(
     )
 )
 
-input_tbl["pileup_path"] = input_tbl["path_to_fire_output_folder"].apply(
-    lambda x: str(next(Path(x).glob("*pileup.bed.gz")))
-)
+if GRAPH_ONLY==False:
+    input_tbl["pileup_path"] = input_tbl["path_to_fire_output_folder"].apply(
+        lambda x: str(next(Path(x).glob("*pileup.bed.gz")))
+    )
+else:
+    input_tbl["pileup_path"] = "NA"
 
 ## make combined fasta and put and graph_prefixes_tbl
 hap1_fasta_tbl = input_tbl[
