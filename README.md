@@ -73,24 +73,43 @@ And in place of `...` use all the normal Snakemake arguments for your workflow.
 
 ## Input files
 
+The bonFIRE pipeline can do several things:
+(1) Generate a pangenome graph only, which includes CHM13, GRCh38, and all provided assemblies <br>
+(2) Generate pangenome graph and perform consensus peak calling <br>
+(3) Perform consensus peak calling with a provided graph (This is safest to do with a graph generated via this pipeline!)
+
+As input, option 2 and 3 require the outputs of [FIRE](https://fiberseq.github.io/fire/run.html), generated using 'pixi run fire' (see **3.1 Running and installing** under the 3. FIRE on the left-hand side menu). Specifically, it will look for the *.peaks.bed.gz file and *.pileup.bed.gz file in the FIRE output folder indicated in the input file (described below).
+
+bonFIRE requires an **input file** and a **config file**. 
+
+A sample input file can be found at: <br>
+config/sample_configs/cons_peak_calling_new_input_sample.txt
+
+It should include one line per FIRE run, with a unique 'sample_name' (first column) for each run. These will appear in the output file, so information that would be useful for downstream analysis can be helpful to include (e.g. if multiple FIRE runs on different tissues in the same individual are included, the sample name can be \[donor\]_\[tissue\].)
+
+Input file columns (tab delimited): <br>
+**sample_name**: unique for each line. <br>
+**path_to_fire_output_folder**: full path to FIRE output folder for this sample. If generating graph only, put NA here. <br>
+**hap1_orig_subtag** & **hap2_orig_subtag**: This is any substring that can be used to differentiate hap1 chromosome names from hap2 chromosome names. These can be found anywhere in the chromosome name. (e.g. h1/h2, #1#/#2#, MATERNAL/PATERNAL, etc.) <br>
+**hap1_in_graph** & **hap2_in_graph**: These are the prefixes used for each haplotype in the graph. I commonly use \[donor-id\]_1 and \[donor-id\]_2. ** If multiple lines of this input file are associated with the same assembly (e.g. multiple tissue samples per donor), these values should be identical in those lines. This way, each unique assembly will only appear in the graph once. <br>
+**hap1_fasta_path** & **hap2_fasta_path**: path to hap1 and hap2 assembly fasta files. Make sure unassigned contigs are not included in these files, and all contigs that are included can be distinguished by **hap1_orig_subtag** & **hap2_orig_subtag**
+
 A sample config can be found in config/sample_configs/config_graphProvided.yaml
 
 Fields include:
-**output_dir**: directory to write to
-**prefix**: run prefix \
-**input_file**: Described below \
-**ft_path:** Used for dev purposes; can be removed in most cases \                                                                 
-**ft_param**: Default 1000. Keep as is for most cases.
-**graph**: path to graph if one has already been generated. If not, remove this line, and a graph will be generated for you. 
-**CHM13_fasta_path**: Path to CHM13 fasta
-**hg38_fasta_path**: Path to GRCh38 fasta
-**Peak_length_change_param**: 1 (Keep as is)
-**split_graph**: If graph is being generated, should it be split by chromosome? Default is False, but may need to split for larger graphs. 
-**make_graph_only**: Default False. Make True if you'd like to make the graph only, without consensus peak calling. 
-**graph_mem**: 300000 (Can increase for large graphs)
-**graph_runtime**: 1440 (In minutes. Can increase for large graphs.)
-
-A sample input file (path in 'input_file' above) can be found at: 
+**output_dir**: directory to write to <br>
+**prefix**: run prefix <br>
+**input_file**: Described above <br>
+**ft_path:** Used for dev purposes; can be removed in most cases <br>                                                                 
+**ft_param**: Default 1000. Keep as is for most cases. <br>
+**graph**: path to graph if one has already been generated. If not, remove this line, and a graph will be generated for you. <br>
+**CHM13_fasta_path**: Path to CHM13 fasta <br>
+**hg38_fasta_path**: Path to GRCh38 fasta <br>
+**Peak_length_change_param**: 1 (Keep as is) <br>
+**split_graph**: If graph is being generated, should it be split by chromosome? Default is False, but may need to split for larger graphs. <br>
+**make_graph_only**: Default False. Make True if you'd like to make the graph only, without consensus peak calling. <br>
+**graph_mem**: 300000 (Can increase for large graphs) <br>
+**graph_runtime**: 1440 (In minutes. Can increase for large graphs.) 
 
 ## Consensus Peak Calling Approach
 
