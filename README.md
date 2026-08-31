@@ -23,7 +23,7 @@ See section titled **Consensus Peak Calling Approach** for an in depth overview 
 Clone the repository and move into the project directory:
 
 ```bash
-git clone https://github.com/minkinaa/bonFIRE.git
+git clone https://github.com/fiberseq/bonFIRE.git
 cd bonFIRE
 ```
 
