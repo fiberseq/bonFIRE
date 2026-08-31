@@ -77,9 +77,9 @@ A sample config can be found in config/sample_configs/config_graphProvided.yaml
 
 Fields include:
 **output_dir**: directory to write to
-**prefix**: run prefix 
-**input_file**: Described below
-**ft_path:** Used for dev purposes; can be removed in most cases                                                                 
+**prefix**: run prefix \
+**input_file**: Described below \
+**ft_path:** Used for dev purposes; can be removed in most cases \                                                                 
 **ft_param**: Default 1000. Keep as is for most cases.
 **graph**: path to graph if one has already been generated. If not, remove this line, and a graph will be generated for you. 
 **CHM13_fasta_path**: Path to CHM13 fasta
