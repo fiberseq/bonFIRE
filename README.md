@@ -96,7 +96,7 @@ Input file columns (tab delimited): <br>
 
 A sample config can be found in config/sample_configs/config_graphProvided.yaml
 
-Fields include:
+Fields to include: <br>
 **output_dir**: directory to write to <br>
 **prefix**: run prefix <br>
 **input_file**: Described above <br>
