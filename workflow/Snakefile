@@ -45,6 +45,7 @@ TEMP_THREADS=int(config.get("threads", 32))
 SPLIT_GRAPH=config.get("split_graph", False)
 GRAPH_ONLY=config.get("make_graph_only", False)
 GRAPH_MEM=config.get("graph_mem", 300000)
+GRAPH_RUNTIME=config.get("graph_runtime", 1440)
 
 graphs_dir=f"{global_output_dir}/{sample}/graph"
 Path(f"{global_output_dir}/{sample}").mkdir(parents=True, exist_ok=True)
@@ -156,6 +157,8 @@ if GRAPH_ONLY == True:
 else:
     All_Targets = f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
 
+print(All_Targets)
+
 rule all:
     input:
         #f"{global_output_dir}/{sample}/{sample}_All_consensus_peaks_moved_to_GRCh38.bed",
@@ -266,7 +269,7 @@ rule make_graph:
         #hg38_path=config.get("GRCh38_fasta_path")
     output:
         #cp_graph_input=f"{graphs_dir}/{{sample}}/{{sample}}_graph_input.txt",
-        cp_graph=f"{graphs_dir}/{sample}.gbz"
+        cp_graph=f"{graphs_dir}/{sample}.full.gbz"
     conda:
         "envs/env.yml"
     #params:
@@ -274,8 +277,8 @@ rule make_graph:
     #    hap2_new_tag=get_hap2_new_tag
     threads: TEMP_THREADS
     resources:
-        mem_mb=200000,
-        runtime=60*24
+        mem_mb=GRAPH_MEM,
+        runtime=GRAPH_RUNTIME
     shell:
         """
         if [ -d "{graphs_dir}/js" ]; then
@@ -287,18 +290,17 @@ rule make_graph:
 
         sample_list=$(cat {input.graph_input} | cut -f1) 
 
-        if [[ "$SPLIT_GRAPH" == "False" ]]; then
+        if [[ "{SPLIT_GRAPH}" == "False" ]]; then
             cactus-pangenome \
             {graphs_dir}/js \
             {graphs_dir}/inputs.txt \
             --outDir {graphs_dir}/ \
             --outName {sample} \
             --reference $sample_list \
-            --vcfReference $sample_list \
-            --defaultCores 4 \
-            --vcf full \
-            --giraffe full \
+            --vcfReference CHM13 GRCh38 \
+            --defaultCores 32 \
             --gfa full \
+            --vcf full \
             --gbz full \
             --filter 0 \
             --noSplit \
@@ -310,11 +312,10 @@ rule make_graph:
             --outDir {graphs_dir}/ \
             --outName {sample} \
             --reference $sample_list \
-            --vcfReference $sample_list \
-            --defaultCores 4 \
-            --vcf full \
-            --giraffe full \
+            --vcfReference CHM13 GRCh38 \
+            --defaultCores 32 \
             --gfa full \
+            --vcf full \
             --gbz full \
             --filter 0 \
             --binariesMode singularity
@@ -422,7 +423,7 @@ rule move_peaks_to_chm13:
         "envs/env.yml"
     threads: 32
     resources:
-        mem_mb=GRAPH_MEM,
+        mem_mb=200000,
         runtime=60*24
     shell:
         """

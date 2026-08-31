@@ -10,3 +10,4 @@ Peak_length_change_param: 1
 split_graph: False
 make_graph_only: False
 graph_mem: 300000
+graph_runtime: 1440
