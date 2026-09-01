@@ -347,7 +347,8 @@ rule make_list_of_chrs_in_graph_for_modifying_graph:
 rule make_fasta_of_missing_chrs:
     input:
         fasta=rules.combine_fastas.output.combined_fastas,
-        chrs_in_graph=rules.make_list_of_chrs_in_graph_for_modifying_graph.output.chrs_to_keep_list
+        chrs_in_graph=rules.make_list_of_chrs_in_graph_for_modifying_graph.output.chrs_to_keep_list,
+        graph_prefixes_input=graph_prefixes_input
     output:
         fasta_of_missing_chrs=temp(f"{graphs_dir}/{sample}-missing_chrs.fa")
     #params:
@@ -361,8 +362,8 @@ rule make_fasta_of_missing_chrs:
         """
         python {WORKFLOW_DIR}/scripts/make_fasta_of_missing_contigs_multiple_asms.py \
             {input.chrs_in_graph} \
+            {input.graph_prefixes_input} \
             {input.fasta} \
-            graph_prefixes_input \
             {output.fasta_of_missing_chrs} \
         """
 
