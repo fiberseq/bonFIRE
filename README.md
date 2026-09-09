@@ -18,7 +18,11 @@ See section titled **Consensus Peak Calling Approach** for an in depth overview 
 
 ## Installation 
 
-### 1. Clone the repository
+### 1. Install Pixi
+
+Please start by installing [pixi](https://pixi.sh/latest/) which handles the environment of this Snakemake workflow.
+
+### 2. Clone the repository
 
 Clone the repository and move into the project directory:
 
@@ -26,10 +30,6 @@ Clone the repository and move into the project directory:
 git clone https://github.com/fiberseq/bonFIRE.git
 cd bonFIRE
 ```
-
-### 2. Install Pixi
-
-Please start by installing [pixi](https://pixi.sh/latest/) which handles the environment of this Snakemake workflow.
 
 ### 3. Install dependencies
 
