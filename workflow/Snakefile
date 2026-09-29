@@ -202,7 +202,7 @@ rule make_bed_with_haps_and_peakIDs:
             gzip -cd "{input.input_bed}" 2>/dev/null || cat "{input.input_bed}"
         ) | awk -F'\t' '
             BEGIN {{ OFS="\t" }}
-            /unassigned/ { next }
+            /unassigned/ {{ next }}
             NR == 1 {{
                 if ($2 ~ /^[0-9]+$/) {{
                     header = "#chrom\tstart\tend"
