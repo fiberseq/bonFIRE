@@ -801,8 +801,12 @@ rule subset_pileup_file:
         runtime=60
     shell:
         """
-        sample_hap_name=$(cat {input.graph_prefixes_input} | grep "{wildcards.asm}" | cut -f1)
-        zcat {input.pileup} | grep "${{sample_hap_name}}" | cut -f1-6 > {output.mod_pileup}
+        sample_hap_name=$(awk -F'\t' -v a="{wildcards.asm}" '$2 == a {{ print $1 }}' {input.graph_prefixes_input})
+        if [[ $(echo "$sample_hap_name" | wc -l) -ne 1 || -z "$sample_hap_name" ]]; then
+            echo "Expected one entry for {wildcards.asm} in {input.graph_prefixes_input}, found: $sample_hap_name" >&2
+            exit 1
+        fi
+        zcat {input.pileup} | awk -F'\t' -v p="$sample_hap_name" 'index($1, p)' | cut -f1-6 > {output.mod_pileup}
         """
 
 rule intersect_peaks_and_pileup:
