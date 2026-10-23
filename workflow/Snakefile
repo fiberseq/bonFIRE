@@ -489,6 +489,7 @@ rule make_gam_of_untransferred_peaks:
         bed=rules.make_untransferred_peaks_list.output.orig_bed_annotated_not_surjected,
         graph_prefixes_input=graph_prefixes_input
     output:
+        bed_for_inject=temp(f"{global_output_dir}/{sample}/{sample}_untransferred_TEMP_peaks_for_inject.bed"),
         fibertigs_out=temp(f"{global_output_dir}/{sample}/{sample}_untransferred_TEMP_peaks_fibertigs.bam"),
         fibertigs_for_inject_out=temp(f"{global_output_dir}/{sample}/{sample}_untransferred_TEMP_peaks_fibertigs_ToInject.bam"),
         gam=f"{global_output_dir}/{sample}/{sample}_NonCHM13_peaks.gam"
@@ -500,10 +501,11 @@ rule make_gam_of_untransferred_peaks:
         runtime=60*24
     shell:
         """
-        sed -i '1s/^/#/' {input.bed}
+        # pg-inject needs the header commented out; edit a copy so the input (and its mtime) is untouched
+        sed '1s/^#*/#/' {input.bed} > {output.bed_for_inject}
 
         sh {WORKFLOW_DIR}/scripts/260127_inject_w_fibertigs.txt \
-            {input.bed} \
+            {output.bed_for_inject} \
             {input.graph} \
             {input.fasta} \
             {PATH_TO_FT} \
