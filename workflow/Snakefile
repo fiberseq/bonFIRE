@@ -54,11 +54,10 @@ input_tbl=pd.read_csv(input_file, sep=r"\s+", keep_default_na=False)
 
 print(input_tbl)
 
-# "-" separates the run from the coordinates in peak_id, and ft uses "|" and ";" inside
-# its fa tag, so none of these can appear in a sample name
-bad_sample_names = [s for s in input_tbl["sample_name"] if any(c in s for c in "-|;")]
+# ft uses "|" and ";" inside its fa tag, and the sample name goes into peak_id
+bad_sample_names = [s for s in input_tbl["sample_name"] if any(c in s for c in "|;")]
 if bad_sample_names:
-    sys.exit(f"sample_name can't contain '-', '|' or ';': {bad_sample_names}")
+    sys.exit(f"sample_name can't contain '|' or ';': {bad_sample_names}")
 
 if GRAPH_ONLY==False:
     input_tbl["peaks_file"] = input_tbl["path_to_fire_output_folder"].apply(
@@ -233,8 +232,8 @@ rule make_bed_with_haps_and_peakIDs:
             }}
             /unassigned/ {{ next }}
             {{
-                # peak_id is run-chrom_start_end, so runs sharing an assembly keep their own peaks
-                peak_id = $4"-"$1"_"$2"_"$3
+                # peak_id is chrom_start_end-run, so runs sharing an assembly keep their own peaks
+                peak_id = $1"_"$2"_"$3"-"$4
                 if (seen[peak_id]++) {{
                     n_dup++
                     next
