@@ -143,8 +143,10 @@ wildcard_constraints:
     asm="|".join(asm_wildcards),
     run="|".join(run_wildcards)
 
+# each assembly once, in input order (a donor with several runs is listed more than once)
+unique_asms = list(dict.fromkeys(asm_wildcards))
+
 assemblies_surjected_onto_file=f"{global_output_dir}/{sample}/{sample}_list_of_surj_assemblies_in_order.txt"
-next_asm_file=f"{global_output_dir}/{sample}/next_asm.txt"
 
 pairs_1_3 = list(zip(input_tbl["sample_name"], input_tbl["hap1_in_graph"]))
 pairs_1_4 = list(zip(input_tbl["sample_name"], input_tbl["hap2_in_graph"]))
@@ -478,7 +480,7 @@ rule make_untransferred_peaks_list:
         orig_bed_annotated = f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info.bed",
         orig_bed_annotated_surjected = f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_SURJECTED_ONTO_CHM13.bed",
         orig_bed_annotated_not_surjected = f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13.bed",
-        # surjection_loop works out its first assembly itself, so this is only kept until the job ends
+        # assign_untransferred_peaks_to_asms picks its own assemblies, so this is only kept until the job ends
         next_asm_after_chm13 = temp(f"{global_output_dir}/{sample}/{sample}_next_asm_after_CHM13.txt"),
     params:
         last_surjected_asm="CHM13"
@@ -545,89 +547,70 @@ rule make_gam_of_untransferred_peaks:
 
         """
 
-rule surjection_loop:
+# Surject the peaks that didn't go to CHM13 onto every input assembly, one job per assembly.
+# assign_untransferred_peaks_to_asms then picks assemblies in greedy order from these results.
+rule surject_untransferred_peaks_onto_asm:
     input:
         graph=graph,
-        #bed=rules.add_peak_annotations_in_R.output.orig_bed_annotated_noCHM13,
         gam=rules.make_gam_of_untransferred_peaks.output.gam,
-        graph_prefixes_input=graph_prefixes_input,
-        annotated_bed_noCHM13=rules.make_untransferred_peaks_list.output.orig_bed_annotated_not_surjected
+        graph_prefixes_input=graph_prefixes_input
     output:
-        annotated_bed_noCHM13_to_modify=temp(f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13_to_mod.bed"),
-        surjected=temp(f"{global_output_dir}/{sample}/{sample}_SurjLoop_TEMP_surjected.bam"),
-        surj_processed=temp(f"{global_output_dir}/{sample}/{sample}_SurjLoop_TEMP_surjected_processed.bam"),
-        bed_final=temp(f"{global_output_dir}/{sample}/{sample}_SurjLoop_TEMP_surjected_processed.bed"),
-        temp_annotated_bed=temp(f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13_w_TempForAnnotationLoop.bed"),
-        fully_annotated_bed=f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13_w_FullyAnnotated.bed",
-        # assemblies tried, in order
-        assemblies_tried=assemblies_surjected_onto_file,
-        next_asm=next_asm_file
+        surjected=temp(f"{global_output_dir}/{sample}/untransferred_peaks_surjected_onto_asms/{sample}_TEMP_surjected_onto_{{asm}}.bam"),
+        surj_processed=temp(f"{global_output_dir}/{sample}/untransferred_peaks_surjected_onto_asms/{sample}_TEMP_surjected_onto_{{asm}}_processed.bam"),
+        bed_final=temp(f"{global_output_dir}/{sample}/untransferred_peaks_surjected_onto_asms/{sample}_untransferred_peaks_surjected_onto_{{asm}}.bed")
     conda:
-        "envs/env_and_R_env_combined.yml"
+        "envs/env.yml"
     threads: 16
     resources:
         mem_mb=300000,
         runtime=60*24
     log:
-        f"{log_dir}/surjection_loop.log"
+        f"{log_dir}/surject_untransferred_peaks_onto_asm_{{asm}}.log"
     shell:
         """
         exec > {log} 2>&1
-        # skip the header; with no peaks left there is nothing to surject
-        next_asm_for_file=$(tail -n +2 {input.annotated_bed_noCHM13} | cut -f6 | sort | uniq -c | sort -nr | head -1 | awk '{{print $2}}')
-        echo ${{next_asm_for_file:-NONE}} > {output.next_asm}
+        sh {WORKFLOW_DIR}/scripts/260127_surject_w_fibertigs.txt \
+            {input.graph} \
+            {PATH_TO_FT} \
+            {input.graph_prefixes_input} \
+            {input.gam} \
+            {output.surjected} \
+            {output.surj_processed} \
+            {output.bed_final} \
+            {WORKFLOW_DIR}/scripts \
+            {wildcards.asm}
+        """
 
-        next_asm=$(<{output.next_asm})
-        echo "CHM13" > {output.assemblies_tried}
-
-        cp {input.annotated_bed_noCHM13} {output.annotated_bed_noCHM13_to_modify}
-
-        while [[ "$next_asm" != "NONE" ]]; do
-            echo $next_asm
-            asm_graph_name=$( awk -v k="$next_asm" '$1 == k {{ print $2; exit }}' {input.graph_prefixes_input} )
-
-            if [[ -z "$asm_graph_name" ]]; then
-                echo "No graph name for assembly $next_asm in {input.graph_prefixes_input}" >&2
-                exit 1
-            fi
-
-            # the R script skips tried assemblies, so this is only a guard against looping forever
-            grep -qxF "$asm_graph_name" {output.assemblies_tried} && break
-
-            echo $asm_graph_name >> {output.assemblies_tried}
-
-            ### surject and process
-
-            sh {WORKFLOW_DIR}/scripts/260127_surject_w_fibertigs.txt \
-                {input.graph} \
-                {PATH_TO_FT} \
-                {input.graph_prefixes_input} \
-                {input.gam} \
-                {output.surjected} \
-                {output.surj_processed} \
-                {output.bed_final} \
-                {WORKFLOW_DIR}/scripts \
-                $asm_graph_name
-
-            ### run R script to add info 
-            Rscript {WORKFLOW_DIR}/scripts/260126_annotate_subsequent_peak_files_w_surjection_info.R \
-                {output.annotated_bed_noCHM13_to_modify} \
-                {output.bed_final} \
-                $next_asm \
-                {output.temp_annotated_bed} \
-                {output.next_asm} \
-                {length_change_param} \
-                {output.assemblies_tried} \
-                {input.graph_prefixes_input}
-
-            mv {output.temp_annotated_bed} {output.annotated_bed_noCHM13_to_modify}     
-
-            next_asm=$(<"{output.next_asm}")
-        done
-
-        cp {output.annotated_bed_noCHM13_to_modify} {output.temp_annotated_bed}
-        cp {output.annotated_bed_noCHM13_to_modify} {output.fully_annotated_bed}
-
+rule assign_untransferred_peaks_to_asms:
+    input:
+        annotated_bed_noCHM13=rules.make_untransferred_peaks_list.output.orig_bed_annotated_not_surjected,
+        graph_prefixes_input=graph_prefixes_input,
+        surjected_beds=expand(rules.surject_untransferred_peaks_onto_asm.output.bed_final, asm=unique_asms)
+    output:
+        fully_annotated_bed=f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13_w_FullyAnnotated.bed",
+        # assemblies tried, in order
+        assemblies_tried=assemblies_surjected_onto_file
+    params:
+        asm_names=",".join(unique_asms)
+    conda:
+        "envs/R_env.yml"
+    threads: 1
+    resources:
+        mem_mb=16000,
+        runtime=60*2
+    log:
+        f"{log_dir}/assign_untransferred_peaks_to_asms.log"
+    shell:
+        """
+        exec > {log} 2>&1
+        Rscript {WORKFLOW_DIR}/scripts/assign_untransferred_peaks_to_asms.R \
+            {input.annotated_bed_noCHM13} \
+            {input.graph_prefixes_input} \
+            {length_change_param} \
+            {output.fully_annotated_bed} \
+            {output.assemblies_tried} \
+            {params.asm_names} \
+            {input.surjected_beds}
         """
 
 rule call_global_peaks_on_chm13:
@@ -664,7 +647,7 @@ rule call_global_peaks_on_chm13:
 
 rule call_global_peaks_on_nonCHM13:
     input:
-        bed=rules.surjection_loop.output.fully_annotated_bed
+        bed=rules.assign_untransferred_peaks_to_asms.output.fully_annotated_bed
     output:
         bed_4col=temp(f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13_w_FullyAnnotated_4col.bed"),
         mock_bam=temp(f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13_w_FullyAnnotated_4col_mockbam.bam"),
@@ -1072,7 +1055,7 @@ rule intersect_original_and_transferred_consensus_peaks:
 rule all_peaks_surjected_onto_consensus_assemblies:
     input:
         chm13=rules.make_untransferred_peaks_list.output.orig_bed_annotated_surjected,
-        non_chm13=rules.surjection_loop.output.fully_annotated_bed
+        non_chm13=rules.assign_untransferred_peaks_to_asms.output.fully_annotated_bed
     output: 
         out=temp(f"{global_output_dir}/{sample}/{sample}_all_peaks_surjected_onto_consensus_assemblies_5col_for_intersect.bed")
     resources:
