@@ -192,8 +192,8 @@ updated_tbl$overlaps_original_called_peak[which(updated_tbl$asm_peak_id %in% ori
 
 ## add multiple to one info
 
-## peak_id_orig is run|chrom_start_end, so drop the run before parsing the coordinates
-surj_peak_cons_peak_intersect$coords_orig = sub("^[^|]*\\|", "", surj_peak_cons_peak_intersect$peak_id_orig)
+## peak_id_orig is run-chrom_start_end, so drop the run before parsing the coordinates
+surj_peak_cons_peak_intersect$coords_orig = sub("^[^-]*-", "", surj_peak_cons_peak_intersect$peak_id_orig)
 surj_peak_cons_peak_intersect$chr_orig = apply(surj_peak_cons_peak_intersect[,"coords_orig",drop = F], 1, return_chr)
 surj_peak_cons_peak_intersect$start_orig = apply(surj_peak_cons_peak_intersect[,"coords_orig",drop = F], 1, return_start)
 surj_peak_cons_peak_intersect$end_orig = apply(surj_peak_cons_peak_intersect[,"coords_orig",drop = F], 1, return_end)
