@@ -117,11 +117,23 @@ combined_fasta_tbl_w_refs = pd.concat([
     combined_fasta_tbl_w_refs.iloc[[-1]]    # last row
 ]).reset_index(drop=True)
 
+# These are rule inputs and the Snakefile is re-read on every run and every cluster job,
+# so only rewrite them when the contents change. Otherwise the new mtime makes every
+# downstream output (including the graph) look out of date.
+def write_tsv_if_changed(df, path):
+    new_contents = df.to_csv(sep='\t', index=False, header=False)
+    if os.path.exists(path):
+        with open(path) as f:
+            if f.read() == new_contents:
+                return
+    with open(path, "w") as f:
+        f.write(new_contents)
+
 graph_input_file=f"{global_output_dir}/{sample}/{sample}_graph_input.tsv"
-combined_fasta_tbl_w_refs.to_csv(graph_input_file, sep='\t', index=False, header=False)
+write_tsv_if_changed(combined_fasta_tbl_w_refs, graph_input_file)
 
 graph_prefixes_input = f"{global_output_dir}/{sample}/{sample}_graph_prefixed_input.tsv"
-combined_fasta_tbl.to_csv(graph_prefixes_input, sep='\t', index=False, header=False)
+write_tsv_if_changed(combined_fasta_tbl, graph_prefixes_input)
 
 ## wildcard definitions
 run_wildcards=input_tbl["sample_name"].values.tolist()
