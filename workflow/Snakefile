@@ -526,8 +526,9 @@ rule surjection_loop:
         runtime=60*24
     shell:
         """
-        next_asm_for_file=$(cat {input.annotated_bed_noCHM13} | cut -f6 | sort | uniq -c | sort -nr | head -1 | awk '{{print $2}}')
-        echo $next_asm_for_file > {next_asm_file}
+        # skip the header; with no peaks left there is nothing to surject
+        next_asm_for_file=$(tail -n +2 {input.annotated_bed_noCHM13} | cut -f6 | sort | uniq -c | sort -nr | head -1 | awk '{{print $2}}')
+        echo ${{next_asm_for_file:-NONE}} > {next_asm_file}
 
         next_asm=$(<{next_asm_file})
         echo "CHM13" > {assemblies_surjected_onto_file}
@@ -537,13 +538,14 @@ rule surjection_loop:
         while [[ "$next_asm" != "NONE" ]]; do
             echo $next_asm
             asm_graph_name=$( awk -v k="$next_asm" '$1 == k {{ print $2; exit }}' {input.graph_prefixes_input} )
-            last_asm=$(tail -n 1 {assemblies_surjected_onto_file})
-            
-            if [[ "$asm_graph_name" == "$last_asm" ]]; then
-                break
+
+            if [[ -z "$asm_graph_name" ]]; then
+                echo "No graph name for assembly $next_asm in {input.graph_prefixes_input}" >&2
+                exit 1
             fi
-            
-            grep -q "$asm_graph_name" {assemblies_surjected_onto_file} && break
+
+            # the R script skips tried assemblies, so this is only a guard against looping forever
+            grep -qxF "$asm_graph_name" {assemblies_surjected_onto_file} && break
 
             echo $asm_graph_name >> {assemblies_surjected_onto_file}
 
@@ -567,7 +569,9 @@ rule surjection_loop:
                 $next_asm \
                 {output.temp_annotated_bed} \
                 {next_asm_file} \
-                {length_change_param}
+                {length_change_param} \
+                {assemblies_surjected_onto_file} \
+                {input.graph_prefixes_input}
 
             mv {output.temp_annotated_bed} {output.annotated_bed_noCHM13_to_modify}     
 
