@@ -184,11 +184,11 @@ hg38_file_pass_filt = hg38_file[which(hg38_file$percent_diff < 20),]
 hg38_file_pass_filt_for_merge = hg38_file_pass_filt[,c(1:4)]
 updated_tbl <- left_join(updated_tbl, hg38_file_pass_filt_for_merge, by = "consensus_peak_id")
 updated_tbl$exists_in_hg38 = FALSE
-updated_tbl[which(!is.na(updated_tbl$hg38_chr)),]$exists_in_hg38 = TRUE
+updated_tbl$exists_in_hg38[which(!is.na(updated_tbl$hg38_chr))] = TRUE
 
 ## add info about whether original peak existed
 updated_tbl$overlaps_original_called_peak=FALSE
-updated_tbl[which(updated_tbl$asm_peak_id %in% orig_peak_trans_peak_intersect$trans_peak_id),]$overlaps_original_called_peak=TRUE
+updated_tbl$overlaps_original_called_peak[which(updated_tbl$asm_peak_id %in% orig_peak_trans_peak_intersect$trans_peak_id)] = TRUE
 
 ## add multiple to one info
 
@@ -215,7 +215,7 @@ if(nrow(surj_peak_cons_peak_intersect_NoHash) > 0){
   for(i in 1:length(nonHash_asms)){
     temp_asm = nonHash_asms[i]
     print(temp_asm)
-    surj_peak_cons_peak_intersect_NoHash[which(grepl(temp_asm,surj_peak_cons_peak_intersect_NoHash$chr_orig)),]$asm = temp_asm
+    surj_peak_cons_peak_intersect_NoHash$asm[which(grepl(temp_asm,surj_peak_cons_peak_intersect_NoHash$chr_orig))] = temp_asm
   }
   if(nrow(surj_peak_cons_peak_intersect_wHash) > 0){
     surj_peak_cons_peak_intersect = as.data.frame(rbind(surj_peak_cons_peak_intersect_wHash, surj_peak_cons_peak_intersect_NoHash))
@@ -255,12 +255,12 @@ if(nrow(aggreg_by_cons_peak_2) > 0){
   aggreg_by_cons_peak_2$start_diff =aggreg_by_cons_peak_2$orig_start_2-aggreg_by_cons_peak_2$orig_start_1
   aggreg_by_cons_peak_2$space_between_peaks = aggreg_by_cons_peak_2$orig_start_2-aggreg_by_cons_peak_2$orig_end_1
   aggreg_by_cons_peak_2$share_orig_chr = FALSE
-  aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$orig_chr_1 == aggreg_by_cons_peak_2$orig_chr_2),]$share_orig_chr = TRUE
+  aggreg_by_cons_peak_2$share_orig_chr[which(aggreg_by_cons_peak_2$orig_chr_1 == aggreg_by_cons_peak_2$orig_chr_2)] = TRUE
   
   aggreg_by_cons_peak_2$surj_peak_length = apply(aggreg_by_cons_peak_2[,"sample_graphHap_peak",drop = F],1,return_surj_peak_length)
   
   aggreg_by_cons_peak_2$dist_less_than_cons_peak = FALSE
-  aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$space_between_peaks < aggreg_by_cons_peak_2$surj_peak_length),]$dist_less_than_cons_peak = TRUE
+  aggreg_by_cons_peak_2$dist_less_than_cons_peak[which(aggreg_by_cons_peak_2$space_between_peaks < aggreg_by_cons_peak_2$surj_peak_length)] = TRUE
   
   aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE = aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$dist_less_than_cons_peak == FALSE | aggreg_by_cons_peak_2$share_orig_chr == FALSE),]
   aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$surj_chr = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,"sample_graphHap_peak",drop = F], 1, return_surj_chr)
@@ -272,7 +272,7 @@ updated_tbl$sample_id_peak_id_TEMP_COL = paste0(updated_tbl$sample_id, "-", upda
 
 ### greater than 2:
 
-if(nrow(aggreg_by_cons_peak_2) > 0){
+if(nrow(surj_peak_cons_peak_intersect_mult_to_one_gr2) > 0){
   surj_peak_cons_peak_intersect_mult_to_one_gr2$cons_peak_length = surj_peak_cons_peak_intersect_mult_to_one_gr2$end_cons-surj_peak_cons_peak_intersect_mult_to_one_gr2$start_cons
   
   unique_sample_peaks = unique(surj_peak_cons_peak_intersect_mult_to_one_gr2$sample_graphHap_peak)
@@ -286,11 +286,11 @@ if(nrow(aggreg_by_cons_peak_2) > 0){
     }
     temp_samp_peak = unique_sample_peaks[i]
     temp_tbl = surj_peak_cons_peak_intersect_mult_to_one_gr2[which(surj_peak_cons_peak_intersect_mult_to_one_gr2$sample_graphHap_peak == temp_samp_peak),]
-    temp_tbl_ord = temp_tbl[order(temp_tbl$start_orig),]
+    temp_tbl_ord = temp_tbl[order(as.numeric(temp_tbl$start_orig)),]
     cons_len = as.numeric(temp_tbl_ord[1,"cons_peak_length"])
     num_peaks = 1
-    for(i in 2:nrow(temp_tbl)){
-      if(as.numeric(temp_tbl[i,"start_orig"])-as.numeric(temp_tbl[i-1,"end_orig"]) > cons_len){
+    for(j in 2:nrow(temp_tbl_ord)){
+      if(as.numeric(temp_tbl_ord[j,"start_orig"])-as.numeric(temp_tbl_ord[j-1,"end_orig"]) > cons_len){
         num_peaks = num_peaks + 1
       }
     }
@@ -316,18 +316,18 @@ all_peaks_summary = surj_peak_cons_peak_intersect %>%
 all_peaks_summary = as.data.frame(all_peaks_summary)
 
 updated_tbl$num_overlapping_orig_peaks = 0
-updated_tbl[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% surj_peak_cons_peak_intersect$sample_graphHap_peak),]$num_overlapping_orig_peaks = 1
+updated_tbl$num_overlapping_orig_peaks[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% surj_peak_cons_peak_intersect$sample_graphHap_peak)] = 1
 
 if(nrow(aggreg_by_cons_peak_2) > 0){
-  updated_tbl[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$sample_graphHap_peak),]$num_overlapping_orig_peaks = 2
+  updated_tbl$num_overlapping_orig_peaks[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$sample_graphHap_peak)] = 2
 }
 
 updated_tbl_2_or_less = updated_tbl[which(!(updated_tbl$sample_id_peak_id_TEMP_COL %in% peak_id_and_num_peaks$sample_graphHap_peak)),]
 
-if(nrow(aggreg_by_cons_peak_2) > 0){
+if(nrow(surj_peak_cons_peak_intersect_mult_to_one_gr2) > 0){
   updated_tbl_gr_2 = updated_tbl[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% peak_id_and_num_peaks$sample_graphHap_peak),]
   peak_id_and_num_peaks_ord = peak_id_and_num_peaks[match(updated_tbl_gr_2$sample_id_peak_id_TEMP_COL,peak_id_and_num_peaks$sample_graphHap_peak),]
-  updated_tbl_gr_2$num_overlapping_orig_peaks = peak_id_and_num_peaks_ord$num_ov_peaks
+  updated_tbl_gr_2$num_overlapping_orig_peaks = as.numeric(peak_id_and_num_peaks_ord$num_ov_peaks)
   updated_tbl = as.data.frame(rbind(updated_tbl_2_or_less, updated_tbl_gr_2))
 } else {
   updated_tbl = updated_tbl_2_or_less
