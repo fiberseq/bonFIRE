@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 input_bed=$1
 unzipped_output=$2
