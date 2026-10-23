@@ -266,8 +266,11 @@ if(nrow(aggreg_by_cons_peak_2) > 0){
   aggreg_by_cons_peak_2$dist_less_than_cons_peak[which(aggreg_by_cons_peak_2$space_between_peaks < aggreg_by_cons_peak_2$surj_peak_length)] = TRUE
   
   aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE = aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$dist_less_than_cons_peak == FALSE | aggreg_by_cons_peak_2$share_orig_chr == FALSE),]
-  aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$surj_chr = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,"sample_graphHap_peak",drop = F], 1, return_surj_chr)
-  aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$cons_peak = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,"sample_graphHap_peak",drop = F], 1, return_cons_peak)
+  # apply() on a 0-row data frame still calls the function once, with NA
+  if(nrow(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE) > 0){
+    aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$surj_chr = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,"sample_graphHap_peak",drop = F], 1, return_surj_chr)
+    aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$cons_peak = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,"sample_graphHap_peak",drop = F], 1, return_cons_peak)
+  }
   
 }
 
