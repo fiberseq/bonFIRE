@@ -54,6 +54,11 @@ input_tbl=pd.read_csv(input_file, sep=r"\s+", keep_default_na=False)
 
 print(input_tbl)
 
+# "|" separates the run from the coordinates in peak_id
+bad_sample_names = [s for s in input_tbl["sample_name"] if "|" in s]
+if bad_sample_names:
+    sys.exit(f"sample_name can't contain '|': {bad_sample_names}")
+
 if GRAPH_ONLY==False:
     input_tbl["peaks_file"] = input_tbl["path_to_fire_output_folder"].apply(
     lambda x: str(next(Path(x).glob("*peaks.bed.gz")))
@@ -202,47 +207,32 @@ rule make_bed_with_haps_and_peakIDs:
             gzip -cd "{input.input_bed}" 2>/dev/null || cat "{input.input_bed}"
         ) | awk -F'\t' '
             BEGIN {{ OFS="\t" }}
-            /unassigned/ {{ next }}
+            NR == 1 && $2 !~ /^[0-9]+$/ {{
+                print $0, "peak_id"
+                next
+            }}
             NR == 1 {{
-                if ($2 ~ /^[0-9]+$/) {{
-                    header = "#chrom\tstart\tend"
-                    for (i = 4; i <= NF; i++) {{
-                        header = header "\tcol" i
-                    }}
-                    print header, "peak_id"
-                }} else {{
-                    print $0, "peak_id"
+                header = "#chrom\tstart\tend"
+                for (i = 4; i <= NF; i++) {{
+                    header = header "\tcol" i
+                }}
+                print header, "peak_id"
+            }}
+            /unassigned/ {{ next }}
+            {{
+                # peak_id is run|chrom_start_end, so runs sharing an assembly keep their own peaks
+                peak_id = $4"|"$1"_"$2"_"$3
+                if (seen[peak_id]++) {{
+                    n_dup++
                     next
                 }}
-            }}
-            {{
-                peak_id = $1"_"$2"_"$3
                 print $0, peak_id
+            }}
+            END {{
+                if (n_dup) print "Removed " n_dup " duplicate peaks (same run and coordinates)" > "/dev/stderr"
             }}' > {output.output_bed_unzipped}
 
-            colname="peak_id"
-            col_num=$(awk -F '\\t' -v colname="$colname" ' 
-            NR==1 {{
-                for (i=1; i <= NF; i++)
-                    if ($i == colname) 
-                        print i
-            }}' "{output.output_bed_unzipped}")
-
-            duplicates=$(tail -n +2 "{output.output_bed_unzipped}" \
-            | cut -f"$col_num" \
-            | sort \
-            | uniq -c \
-            | awk '$1 > 1 {{print $2}}')
-
-            dup_array=($duplicates)
-
-            if [[ -n "$duplicates" ]]; then
-                echo "Duplicates found:"
-                grep -v -F -f <(printf "%s\n" "${{dup_array[@]}}") {output.output_bed_unzipped} |  bgzip > {output.output_bed}
-            else
-                bgzip -c {output.output_bed_unzipped} > {output.output_bed}
-            fi
-
+        bgzip -c {output.output_bed_unzipped} > {output.output_bed}
         """
 
 rule combine_fastas:
