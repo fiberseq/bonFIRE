@@ -48,11 +48,11 @@ GRAPH_MEM=config.get("graph_mem", 300000)
 GRAPH_RUNTIME=config.get("graph_runtime", 1440)
 
 graphs_dir=f"{global_output_dir}/{sample}/graph"
+# each rule writes its output here; failed jobs' logs are printed at the end of the run
+log_dir=f"{global_output_dir}/{sample}/logs"
 Path(f"{global_output_dir}/{sample}").mkdir(parents=True, exist_ok=True)
 
 input_tbl=pd.read_csv(input_file, sep=r"\s+", keep_default_na=False)
-
-print(input_tbl)
 
 # ft uses "|" and ";" inside its fa tag, and the sample name goes into peak_id
 bad_sample_names = [s for s in input_tbl["sample_name"] if any(c in s for c in "|;")]
@@ -174,8 +174,6 @@ if GRAPH_ONLY == True:
 else:
     All_Targets = f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
 
-print(All_Targets)
-
 rule all:
     input:
         #f"{global_output_dir}/{sample}/{sample}_All_consensus_peaks_moved_to_GRCh38.bed",
@@ -213,8 +211,11 @@ rule make_bed_with_haps_and_peakIDs:
         output_bed_unzipped=f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs.bed"
     conda:
         "envs/env.yml"
+    log:
+        f"{log_dir}/make_bed_with_haps_and_peakIDs.log"
     shell:
         """
+        exec > {log} 2>&1
         (
             gzip -cd "{input.input_bed}" 2>/dev/null || cat "{input.input_bed}"
         ) | awk -F'\t' '
@@ -252,8 +253,11 @@ rule combine_fastas:
         ALL_FASTAS
     output:
         combined_fastas = temp(f"{global_output_dir}/{sample}/{sample}_combined_fastas.fa")
+    log:
+        f"{log_dir}/combine_fastas.log"
     shell:
         r"""
+        exec > {log} 2>&1
         for f in {input}; do
             if [[ "$f" == *.gz ]]; then
                 zcat "$f"
@@ -282,8 +286,11 @@ rule make_graph:
     resources:
         mem_mb=GRAPH_MEM,
         runtime=GRAPH_RUNTIME
+    log:
+        f"{log_dir}/make_graph.log"
     shell:
         """
+        exec > {log} 2>&1
         if [ -d "{graphs_dir}/js" ]; then
             rm -r {graphs_dir}/js
         fi
@@ -341,8 +348,11 @@ rule make_list_of_chrs_in_graph_for_modifying_graph:
     resources:
         mem_mb=10240,
         runtime=30
+    log:
+        f"{log_dir}/make_list_of_chrs_in_graph_for_modifying_graph.log"
     shell:
         """
+        exec > {log} 2>&1
         #vg='singularity exec /mmfs1/gscratch/stergachislab/minkinaa/vg_v1.65.0.sif vg'
         vg paths -M -x {input.graph} | grep -v CHM13 | grep -v GRCh38 | grep -v NAME | cut -f1 | uniq > {output.chrs_to_keep_list}
         """
@@ -361,8 +371,11 @@ rule make_fasta_of_missing_chrs:
     #    hap2_new_tag=get_hap2_new_tag
     conda:
         "envs/env.yml"
+    log:
+        f"{log_dir}/make_fasta_of_missing_chrs.log"
     shell:
         """
+        exec > {log} 2>&1
         python {WORKFLOW_DIR}/scripts/make_fasta_of_missing_contigs_multiple_asms.py \
             {input.chrs_in_graph} \
             {input.graph_prefixes_input} \
@@ -385,8 +398,11 @@ rule make_graph_with_missing_chrs:
     resources:
         mem_mb=50000,
         runtime=60*2
+    log:
+        f"{log_dir}/make_graph_with_missing_chrs.log"
     shell:
         """
+        exec > {log} 2>&1
         LINE_COUNT=$(wc -l < {input.missing_chr_fasta})
         echo $LINE_COUNT
 
@@ -429,8 +445,11 @@ rule move_peaks_to_chm13:
     resources:
         mem_mb=200000,
         runtime=60*24
+    log:
+        f"{log_dir}/move_peaks_to_chm13.log"
     shell:
         """
+        exec > {log} 2>&1
         sh {WORKFLOW_DIR}/scripts/inject_surject_bed_w_fibertigs.txt \
             {input.bed} \
             {input.graph} \
@@ -467,8 +486,11 @@ rule make_untransferred_peaks_list:
     resources:
         mem_mb=50000,
         runtime=60*5
+    log:
+        f"{log_dir}/make_untransferred_peaks_list.log"
     shell:
         """
+        exec > {log} 2>&1
         Rscript {WORKFLOW_DIR}/scripts/260126_annotate_original_peak_file_w_surjection_info.R \
             {input.orig_bed} \
             {input.surj_bed} \
@@ -499,8 +521,11 @@ rule make_gam_of_untransferred_peaks:
     resources:
         mem_mb=300000,
         runtime=60*24
+    log:
+        f"{log_dir}/make_gam_of_untransferred_peaks.log"
     shell:
         """
+        exec > {log} 2>&1
         # pg-inject needs the header commented out; edit a copy so the input (and its mtime) is untouched
         sed '1s/^#*/#/' {input.bed} > {output.bed_for_inject}
 
@@ -538,8 +563,11 @@ rule surjection_loop:
     resources:
         mem_mb=300000,
         runtime=60*24
+    log:
+        f"{log_dir}/surjection_loop.log"
     shell:
         """
+        exec > {log} 2>&1
         # skip the header; with no peaks left there is nothing to surject
         next_asm_for_file=$(tail -n +2 {input.annotated_bed_noCHM13} | cut -f6 | sort | uniq -c | sort -nr | head -1 | awk '{{print $2}}')
         echo ${{next_asm_for_file:-NONE}} > {next_asm_file}
@@ -612,8 +640,11 @@ rule call_global_peaks_on_chm13:
     resources:
         mem_mb=150000,
         runtime=60*24
+    log:
+        f"{log_dir}/call_global_peaks_on_chm13.log"
     shell:
         """
+        exec > {log} 2>&1
         rm -f {global_output_dir}/{sample}/{sample}*SURJECTED_ONTO_CHM13_4col_mockbam.bam.tmp*
         awk 'NR==1 {{print "#chrom\tstart\tend\tsample"; next}} {{print $(NF-2), $(NF-1), $NF, $4"_"$(NF-2)}}' OFS="\t" {input.bed} > {output.bed_4col}
         {PATH_TO_FT} mock-fire {output.bed_4col} | samtools sort -o {output.mock_bam} --write-index
@@ -641,8 +672,11 @@ rule call_global_peaks_on_nonCHM13:
     resources:
         mem_mb=150000,
         runtime=60*24
+    log:
+        f"{log_dir}/call_global_peaks_on_nonCHM13.log"
     shell:
         """
+        exec > {log} 2>&1
         rm -f {global_output_dir}/{sample}/{sample}*NOT_SURJECTED_ONTO_CHM13_w_FullyAnnotated_4col_mockbam.bam.tmp*
 
         cat {input.bed} | awk '$7!="NONE"' | awk 'NR==1 {{print "#chrom\tstart\tend\tsample"; next}} {{print $(NF-2), $(NF-1), $NF, $4"_"$(NF-2)}}' OFS="\t" > {output.bed_4col}
@@ -671,8 +705,11 @@ rule make_chm13_global_peaks_gam:
     resources:
         mem_mb=100000,
         runtime=60*24
+    log:
+        f"{log_dir}/make_chm13_global_peaks_gam.log"
     shell:
         """
+        exec > {log} 2>&1
         sh {WORKFLOW_DIR}/scripts/260127_inject_w_fibertigs_single_asm.txt \
             {input.bed} \
             {input.graph} \
@@ -702,8 +739,11 @@ rule make_NONchm13_global_peaks_gam:
     resources:
         mem_mb=200000,
         runtime=60*24
+    log:
+        f"{log_dir}/make_NONchm13_global_peaks_gam.log"
     shell:
         """
+        exec > {log} 2>&1
         sh {WORKFLOW_DIR}/scripts/260127_inject_w_fibertigs.txt \
             {input.bed} \
             {input.graph} \
@@ -732,8 +772,11 @@ rule surject_global_chm13_peaks_onto_all_assemblies:
     resources:
         mem_mb=200000,
         runtime=60*24
+    log:
+        f"{log_dir}/surject_global_chm13_peaks_onto_all_assemblies_{{asm}}.log"
     shell:
         """
+        exec > {log} 2>&1
             sh {WORKFLOW_DIR}/scripts/260127_surject_w_fibertigs.txt \
                 {input.graph} \
                 {PATH_TO_FT} \
@@ -761,8 +804,11 @@ rule surject_global_Nonchm13_peaks_onto_all_assemblies:
     resources:
         mem_mb=300000,
         runtime=60*24
+    log:
+        f"{log_dir}/surject_global_Nonchm13_peaks_onto_all_assemblies_{{asm}}.log"
     shell:
         """
+        exec > {log} 2>&1
             sh {WORKFLOW_DIR}/scripts/260127_surject_w_fibertigs.txt \
                 {input.graph} \
                 {PATH_TO_FT} \
@@ -783,8 +829,11 @@ rule combine_all_consensus_peaks:
         consensus_bed_combined=f"{global_output_dir}/{sample}/{sample}_ALL_consensus_peaks_combined.bed"
     conda:
         "envs/env.yml"
+    log:
+        f"{log_dir}/combine_all_consensus_peaks.log"
     shell:
         """
+        exec > {log} 2>&1
         #cat {input.chm13_consensus_peaks} {input.nonchm13_consensus_peaks} > {output.consensus_bed_combined}
         cat {input.chm13_consensus_peaks} <( grep -v "#chrom" {input.nonchm13_consensus_peaks}) > {output.consensus_bed_combined}
         """
@@ -797,8 +846,11 @@ rule combined_CHM13_and_NonCHM13_transferred_peak_files:
         bed_combined=f"{global_output_dir}/{sample}/Combined_global_peaks_surjected_onto_asms/{sample}_ALL_global_peaks_surjected_onto_{{asm}}.bed"
     conda:
         "envs/env.yml"
+    log:
+        f"{log_dir}/combined_CHM13_and_NonCHM13_transferred_peak_files_{{asm}}.log"
     shell:
         """
+        exec > {log} 2>&1
         cat {input.chm13_peaks_bed} {input.NonChm13_peaks_bed} > {output.bed_combined}
         """
 
@@ -813,8 +865,11 @@ rule subset_pileup_file:
     resources:
         mem_mb=50000,
         runtime=60
+    log:
+        f"{log_dir}/subset_pileup_file_{{run}}_{{asm}}.log"
     shell:
         """
+        exec > {log} 2>&1
         sample_hap_name=$(awk -F'\t' -v a="{wildcards.asm}" '$2 == a {{ print $1 }}' {input.graph_prefixes_input})
         if [[ $(echo "$sample_hap_name" | wc -l) -ne 1 || -z "$sample_hap_name" ]]; then
             echo "Expected one entry for {wildcards.asm} in {input.graph_prefixes_input}, found: $sample_hap_name" >&2
@@ -834,8 +889,11 @@ rule intersect_peaks_and_pileup:
     resources:
         mem_mb=50000,
         runtime=60
+    log:
+        f"{log_dir}/intersect_peaks_and_pileup_{{run}}_{{asm}}.log"
     shell:
         """
+        exec > {log} 2>&1
         bedtools intersect -a {input.mod_pileup} -b {input.peaks} -wa -wb > {output.overlaps}
         """    
 
@@ -851,8 +909,11 @@ rule process_intersection_file:
     resources:
         mem_mb=50000,
         runtime=60
+    log:
+        f"{log_dir}/process_intersection_file_{{run}}_{{asm}}.log"
     shell:
         """
+        exec > {log} 2>&1
         python3 {WORKFLOW_DIR}/scripts/260217_find_max_fire_score_per_consenses_peak.py \
             {input.overlaps} \
             {input.consensus_peaks} \
@@ -871,8 +932,11 @@ rule combine_max_score_outputs:
     resources:
         mem_mb=50000,
         runtime=60
+    log:
+        f"{log_dir}/combine_max_score_outputs.log"
     shell:
         """
+        exec > {log} 2>&1
         echo "sample_id\tconsensus_peak_id\tcoverage\tfire_coverage\tscore" > {output.combined_out}
         cat <(grep -v -h "sample_id" {input.ind_input}) >> {output.combined_out}
         """
@@ -887,8 +951,11 @@ rule combine_all_transferred_peak_files:
     resources:
         mem_mb=50000,
         runtime=60
+    log:
+        f"{log_dir}/combine_all_transferred_peak_files.log"
     shell:
         """
+        exec > {log} 2>&1
         echo "chr\tstart\tend\tcons_peak_id" > {output.combined_out}
         cat {input} >> {output.combined_out}
         """
@@ -909,8 +976,11 @@ rule surject_CHM13_consensus_peaks_onto_GRCh38:
         asm_to_surject_onto="GRCh38"
     conda:
         "envs/env.yml"
+    log:
+        f"{log_dir}/surject_CHM13_consensus_peaks_onto_GRCh38.log"
     shell:
         """
+        exec > {log} 2>&1
         sh {WORKFLOW_DIR}/scripts/surject_gam_w_fibertigs.txt \
             {input.graph} \
             {PATH_TO_FT} \
@@ -939,8 +1009,11 @@ rule surject_NonCHM13_consensus_peaks_onto_GRCh38:
         asm_to_surject_onto="GRCh38"
     conda:
         "envs/env.yml"
+    log:
+        f"{log_dir}/surject_NonCHM13_consensus_peaks_onto_GRCh38.log"
     shell:
         """
+        exec > {log} 2>&1
         sh {WORKFLOW_DIR}/scripts/surject_gam_w_fibertigs.txt \
             {input.graph} \
             {PATH_TO_FT} \
@@ -964,8 +1037,11 @@ rule combine_GRCh38_transferred_peaks:
         runtime=60*5
     conda:
         "envs/env.yml"
+    log:
+        f"{log_dir}/combine_GRCh38_transferred_peaks.log"
     shell:
         """
+        exec > {log} 2>&1
         cat {input.chm13_peaks} {input.nonchm13_peaks} > {output.combined_out}
         """
 
@@ -980,8 +1056,11 @@ rule intersect_original_and_transferred_consensus_peaks:
         runtime=60*5
     conda:
         "envs/env.yml"
+    log:
+        f"{log_dir}/intersect_original_and_transferred_consensus_peaks.log"
     shell:
         """
+        exec > {log} 2>&1
         bedtools intersect -a <(zcat {input.orig_bed} | tail -n +2) -b <(cat {input.transferred_bed} | tail -n +2) -wa -wb > {output.intersect_out}
         """
     
@@ -996,8 +1075,11 @@ rule all_peaks_surjected_onto_consensus_assemblies:
         runtime=60*2
     conda:
         "envs/env.yml"
+    log:
+        f"{log_dir}/all_peaks_surjected_onto_consensus_assemblies.log"
     shell:
         """
+        exec > {log} 2>&1
         cat {input.chm13} | tail -n +2 | awk  'BEGIN {{OFS="\t"}} {{print($8,$9,$10,$4,$5)}}' | grep -v NONE > {output.out}
         cat {input.non_chm13} | tail -n +2 | awk  'BEGIN {{OFS="\t"}} {{print($8,$9,$10,$4,$5)}}' | grep -v NONE >> {output.out}
         """
@@ -1013,8 +1095,11 @@ rule intersect_cons_surjected_peaks_w_consensus_peaks:
         runtime=60*5
     conda:
         "envs/env.yml"
+    log:
+        f"{log_dir}/intersect_cons_surjected_peaks_w_consensus_peaks.log"
     shell:
         """
+        exec > {log} 2>&1
         bedtools intersect -a {input.cons_surj_peaks} -b {input.cons_peaks} -wa -wb > {output.out}
         """
 
@@ -1029,8 +1114,11 @@ rule get_native_peak_sequences:
         runtime=60*5
     conda:
         "envs/env.yml"
+    log:
+        f"{log_dir}/get_native_peak_sequences.log"
     shell:
         """
+        exec > {log} 2>&1
         bedtools getfasta -bedOut -tab -name -fi {input.fasta} -bed <(cat {input.combined_transferred_peaks_bed} | tail -n +2 | bedtools sort) > {output.seq_out}
         """
     
@@ -1051,8 +1139,11 @@ rule make_metadata_table:
     resources:
         mem_mb=50000,
         runtime=60*5
+    log:
+        f"{log_dir}/make_metadata_table.log"
     shell:
         """
+        exec > {log} 2>&1
         Rscript {WORKFLOW_DIR}/scripts/call_peaks_make_metadata_table.R \
             {global_output_dir}/{sample}/ \
             {sample} \

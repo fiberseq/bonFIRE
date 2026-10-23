@@ -5,7 +5,5 @@ restart-times: 0
 software-deployment-method:
   - apptainer
   - conda
-printshellcmds: True
-show-failed-logs: True
 cores: 32
 local-cores: 4
