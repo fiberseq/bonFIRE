@@ -11,3 +11,5 @@ split_graph: False
 make_graph_only: False
 graph_mem: 300000
 graph_runtime: 1440
+vg_mem_mb: 80000
+vg_threads: 8

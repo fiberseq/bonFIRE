@@ -12,9 +12,10 @@ bed_final=$7
 scripts_dir=$8
 
 asm_to_surject_onto=$9
+threads=${10}
 
 echo "Running surject"
-vg surject -x $graph  -b $gam -n $asm_to_surject_onto  > $surjected
+vg surject -x $graph -t $threads -b $gam -n $asm_to_surject_onto  > $surjected
 
 echo "Processing surjected file"
 python ${scripts_dir}/260121_peakClust_process_after_surject.py \

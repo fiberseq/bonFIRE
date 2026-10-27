@@ -109,7 +109,9 @@ Fields to include: <br>
 **split_graph**: If graph is being generated, should it be split by chromosome? Default is False, but may need to split for larger graphs. <br>
 **make_graph_only**: Default False. Make True if you'd like to make the graph only, without consensus peak calling. <br>
 **graph_mem**: 300000 (Can increase for large graphs) <br>
-**graph_runtime**: 1440 (In minutes. Can increase for large graphs.) 
+**graph_runtime**: 1440 (In minutes. Can increase for large graphs.) <br>
+**vg_mem_mb**: Default 80000. Memory for the vg inject/surject steps; depends on the graph (about 11 GB for a 4-haplotype graph, 60 GB for an 11-sample graph, 180 GB for an 82-sample HPRC graph). Jobs that fail are retried twice with double the memory each time. <br>
+**vg_threads**: Default 8. CPUs for the vg inject/surject steps.
 
 ## Consensus Peak Calling Approach
 
