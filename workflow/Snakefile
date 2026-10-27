@@ -635,6 +635,7 @@ rule call_global_peaks_on_chm13:
         chm13_peaks_5col_w_peak_id_zipped=temp(f"{global_output_dir}/{sample}/{sample}_CHM13_shared_peaks_6col.bed.gz")
     conda:
         "envs/env.yml"
+    threads: 8
     resources:
         mem_mb=mem_for(64000),
         runtime=60*12
@@ -645,8 +646,8 @@ rule call_global_peaks_on_chm13:
         exec > {log} 2>&1
         rm -f {global_output_dir}/{sample}/{sample}*SURJECTED_ONTO_CHM13_4col_mockbam.bam.tmp*
         awk 'NR==1 {{print "#chrom\tstart\tend\tsample"; next}} {{print $(NF-2), $(NF-1), $NF, $4"_"$(NF-2)}}' OFS="\t" {input.bed} > {output.bed_4col}
-        {PATH_TO_FT} mock-fire {output.bed_4col} | samtools sort -o {output.mock_bam} --write-index
-        {PATH_TO_FT} call-peaks {output.mock_bam} --min-fire-coverage 1 --min-fire-frac 0.01 > {output.chm13_peaks}
+        {PATH_TO_FT} mock-fire -t {threads} {output.bed_4col} | samtools sort -@ {threads} -m 2G -o {output.mock_bam} --write-index
+        {PATH_TO_FT} call-peaks -t {threads} {output.mock_bam} --min-fire-coverage 1 --min-fire-frac 0.01 > {output.chm13_peaks}
         cat {output.chm13_peaks} | cut -f1,2,3 > {output.chm13_peaks_5col}
 
         bash {WORKFLOW_DIR}/scripts/add_peak_id_col_to_bed_file.sh \
@@ -667,6 +668,7 @@ rule call_global_peaks_on_nonCHM13:
         NONchm13_peaks_5col_w_peak_id_zipped=temp(f"{global_output_dir}/{sample}/{sample}_NonCHM13_shared_peaks_6col.bed.gz")
     conda:
         "envs/env.yml"
+    threads: 8
     resources:
         mem_mb=mem_for(64000),
         runtime=60*12
@@ -678,8 +680,8 @@ rule call_global_peaks_on_nonCHM13:
         rm -f {global_output_dir}/{sample}/{sample}*NOT_SURJECTED_ONTO_CHM13_w_FullyAnnotated_4col_mockbam.bam.tmp*
 
         cat {input.bed} | awk '$7!="NONE"' | awk 'NR==1 {{print "#chrom\tstart\tend\tsample"; next}} {{print $(NF-2), $(NF-1), $NF, $4"_"$(NF-2)}}' OFS="\t" > {output.bed_4col}
-        {PATH_TO_FT} mock-fire {output.bed_4col} | samtools sort -o {output.mock_bam} --write-index
-        {PATH_TO_FT} call-peaks {output.mock_bam} --min-fire-coverage 1 --min-fire-frac 0.01 > {output.NONchm13_peaks}
+        {PATH_TO_FT} mock-fire -t {threads} {output.bed_4col} | samtools sort -@ {threads} -m 2G -o {output.mock_bam} --write-index
+        {PATH_TO_FT} call-peaks -t {threads} {output.mock_bam} --min-fire-coverage 1 --min-fire-frac 0.01 > {output.NONchm13_peaks}
         cat {output.NONchm13_peaks} | cut -f1,2,3 > {output.NONchm13_peaks_5col}
 
         bash {WORKFLOW_DIR}/scripts/add_peak_id_col_to_bed_file.sh \
