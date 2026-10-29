@@ -635,7 +635,7 @@ rule call_global_peaks_on_chm13:
         chm13_peaks_5col_w_peak_id_zipped=temp(f"{global_output_dir}/{sample}/{sample}_CHM13_shared_peaks_6col.bed.gz")
     conda:
         "envs/env.yml"
-    threads: 8
+    threads: 4
     resources:
         mem_mb=mem_for(64000),
         runtime=60*12
@@ -668,7 +668,7 @@ rule call_global_peaks_on_nonCHM13:
         NONchm13_peaks_5col_w_peak_id_zipped=temp(f"{global_output_dir}/{sample}/{sample}_NonCHM13_shared_peaks_6col.bed.gz")
     conda:
         "envs/env.yml"
-    threads: 8
+    threads: 4
     resources:
         mem_mb=mem_for(64000),
         runtime=60*12
@@ -1061,8 +1061,9 @@ rule intersect_original_and_transferred_consensus_peaks:
         transferred_bed=rules.combine_all_transferred_peak_files.output.combined_out
     output:
         intersect_out=f"{global_output_dir}/{sample}/{sample}_orig_called_peaks_intersect_transferred_consensus_peaks.bed"
+    threads: 4
     resources:
-        mem_mb=mem_for(128000),
+        mem_mb=mem_for(16000),
         runtime=60*5
     conda:
         "envs/env.yml"
@@ -1071,7 +1072,10 @@ rule intersect_original_and_transferred_consensus_peaks:
     shell:
         """
         exec > {log} 2>&1
-        bedtools intersect -a <(zcat {input.orig_bed} | tail -n +2) -b <(cat {input.transferred_bed} | tail -n +2) -wa -wb > {output.intersect_out}
+        # with -sorted, bedtools streams both inputs instead of loading -b into memory
+        export LC_ALL=C
+        sort_bed="sort -k1,1 -k2,2n -S 4G --parallel={threads} -T ${{TMPDIR:-/tmp}}"
+        bedtools intersect -sorted -a <(zcat {input.orig_bed} | tail -n +2 | $sort_bed) -b <(tail -n +2 {input.transferred_bed} | $sort_bed) -wa -wb > {output.intersect_out}
         """
     
 rule all_peaks_surjected_onto_consensus_assemblies:
@@ -1119,8 +1123,9 @@ rule get_native_peak_sequences:
         fasta=rules.combine_fastas.output.combined_fastas
     output:
         seq_out=f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed"
+    threads: 4
     resources:
-        mem_mb=mem_for(96000),
+        mem_mb=mem_for(16000),
         runtime=60*5
     conda:
         "envs/env.yml"
@@ -1129,7 +1134,9 @@ rule get_native_peak_sequences:
     shell:
         """
         exec > {log} 2>&1
-        bedtools getfasta -bedOut -tab -name -fi {input.fasta} -bed <(cat {input.combined_transferred_peaks_bed} | tail -n +2 | bedtools sort) > {output.seq_out}
+        # GNU sort spills to disk; bedtools sort loads the whole file
+        export LC_ALL=C
+        bedtools getfasta -bedOut -tab -name -fi {input.fasta} -bed <(tail -n +2 {input.combined_transferred_peaks_bed} | sort -k1,1 -k2,2n -S 4G --parallel={threads} -T ${{TMPDIR:-/tmp}}) > {output.seq_out}
         """
     
 rule make_metadata_table:
