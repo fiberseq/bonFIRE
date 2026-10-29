@@ -54,6 +54,10 @@ VG_THREADS=int(config.get("vg_threads", 8))
 def mem_for(mem_mb):
     return lambda wildcards, attempt: mem_mb * 2 ** (attempt - 1)
 
+# for rules that can run out of time: each retry gets this much more time
+def runtime_for(minutes):
+    return lambda wildcards, attempt: minutes * attempt
+
 graphs_dir=f"{global_output_dir}/{sample}/graph"
 # each rule writes its output here; failed jobs' logs are printed at the end of the run
 log_dir=f"{global_output_dir}/{sample}/logs"
@@ -181,8 +185,8 @@ if graph=="NA":
 if GRAPH_ONLY == True:
     All_Targets = f"{graphs_dir}/{sample}.full_all_chrs.gbz"
 else:
-    All_Targets = [f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv",
-                   f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed"]
+    All_Targets = [f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv.gz",
+                   f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed.gz"]
 
 rule all:
     input:
@@ -1123,7 +1127,7 @@ rule get_native_peak_sequences:
         combined_transferred_peaks_bed=rules.combine_all_transferred_peak_files.output.combined_out,
         fasta=rules.combine_fastas.output.combined_fastas
     output:
-        seq_out=f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed"
+        seq_out=f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed.gz"
     threads: 4
     resources:
         mem_mb=mem_for(16000),
@@ -1137,7 +1141,7 @@ rule get_native_peak_sequences:
         exec > {log} 2>&1
         # GNU sort spills to disk; bedtools sort loads the whole file
         export LC_ALL=C
-        bedtools getfasta -bedOut -tab -name -fi {input.fasta} -bed <(tail -n +2 {input.combined_transferred_peaks_bed} | sort -k1,1 -k2,2n -S 4G --parallel={threads} -T ${{TMPDIR:-/tmp}}) > {output.seq_out}
+        bedtools getfasta -bedOut -tab -name -fi {input.fasta} -bed <(tail -n +2 {input.combined_transferred_peaks_bed} | sort -k1,1 -k2,2n -S 4G --parallel={threads} -T ${{TMPDIR:-/tmp}}) | bgzip -@ {threads} > {output.seq_out}
         """
     
 rule make_metadata_table:
@@ -1149,13 +1153,13 @@ rule make_metadata_table:
         surj_peaks_intersect_cons=rules.intersect_cons_surjected_peaks_w_consensus_peaks.output.out,
         graph_prefixes_input=graph_prefixes_input
     output:
-        meta_tbl=f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
+        meta_tbl=f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv.gz"
     conda:
         "envs/R_env.yml"
     threads: 4
     resources:
-        mem_mb=mem_for(32000),
-        runtime=60*5
+        mem_mb=mem_for(128000),  # peaked at 85 GB for 59 runs
+        runtime=runtime_for(60*5)
     log:
         f"{log_dir}/make_metadata_table.log"
     shell:

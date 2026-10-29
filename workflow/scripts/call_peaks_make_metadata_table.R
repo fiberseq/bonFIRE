@@ -275,10 +275,11 @@ setDT(updated_tbl)
 updated_tbl[, sample_id_peak_id_TEMP_COL := NULL]
 updated_tbl = updated_tbl[final_order]
 
-## sequences are in _transferred_cons_peaks_native_sequences_from_main_output.bed, keyed by asm_peak_id
+## sequences are in _transferred_cons_peaks_native_sequences_from_main_output.bed.gz, keyed by asm_peak_id
 progress("writing the table")
 ## fwrite rounds the 15th digit differently from write.table, so write the ratio as R formats it
 u = unique(updated_tbl$fire_cov_OV_cov)
 updated_tbl[, fire_cov_OV_cov := as.character(u)[match(fire_cov_OV_cov, u)]]
-fwrite(updated_tbl, paste0(output_dir, prefix, "_final_tbl_w_metadata.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
+## gzipped because of the .gz name; the table is large (~44 GB for 59 runs uncompressed)
+fwrite(updated_tbl, paste0(output_dir, prefix, "_final_tbl_w_metadata.tsv.gz"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
 progress("done")

@@ -149,7 +149,7 @@ Many metadata columns are appended to this output to facilitate downstream analy
 
 ## Outputs
 
-The main output from this pipeline is called **[sample]_final_tbl_w_metadata.tsv** . All columns are described below, with the most commonly used columns starred (*).
+The main output from this pipeline is called **[sample]_final_tbl_w_metadata.tsv.gz** (gzipped; read it with `zless`, or directly with `data.table::fread()` or `read.table()` in R). All columns are described below, with the most commonly used columns starred (*).
 
 \***sample_id**: A sample id that distinguished between two haplotypes (e.g. TestSample_1, TestSample_2)
 
@@ -181,5 +181,5 @@ The main output from this pipeline is called **[sample]_final_tbl_w_metadata.tsv
 
 **orig_peaks_overlapping_consensus**: Positions of originally called peaks which overlap this consensus peak region. This can be useful for troubleshooting/identifying regions where structural differences may complicate direct comparison. *This set is NOT filtered for very nearby peaks as is done for calculating '**num_overlapping_orig_peaks**'; thus there are occasionally more peaks listed here than the number found in that column. 
 
-**Sequences** are not a column of this table (one copy per run made the table very large). They are in **[sample]_transferred_cons_peaks_native_sequences_from_main_output.bed** (columns: asm_chr, asm_start, asm_end, consensus_peak_id, seq), and can be joined to this table on asm_chr, asm_start and asm_end. Each is the underlying sequence of the consensus peak region on that assembly. This can be useful in order to determine whether differences in accessibility are mediated by sequence changes. Keep in mind that the way assemblies are constructed may result in unsynchronized sequence complementarity. Thus, one must consider the reverse complement of sequences in order to compare between them. For an example of how to do this see this vignette (**TO DO**).
+**Sequences** are not a column of this table (one copy per run made the table very large). They are in **[sample]_transferred_cons_peaks_native_sequences_from_main_output.bed.gz** (bgzipped; columns: asm_chr, asm_start, asm_end, consensus_peak_id, seq), and can be joined to this table on asm_chr, asm_start and asm_end. Each is the underlying sequence of the consensus peak region on that assembly. This can be useful in order to determine whether differences in accessibility are mediated by sequence changes. Keep in mind that the way assemblies are constructed may result in unsynchronized sequence complementarity. Thus, one must consider the reverse complement of sequences in order to compare between them. For an example of how to do this see this vignette (**TO DO**).
 
