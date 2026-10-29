@@ -162,9 +162,9 @@ all_sample_pileup_pairs = pairs_1_3 + pairs_1_4
 
 ## Old stuff
 
-CHM13_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/CHM13_global_peaks_surjected_onto_asms/{sample}_CHM13_global_peaks_surjected_onto_{asm}.bed" for asm in asm_wildcards]
-NonCHM13_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/nonCHM13_global_peaks_surjected_onto_asms/{sample}_nonCHM13_global_peaks_surjected_onto_{asm}.bed" for asm in asm_wildcards]
-combined_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/Combined_global_peaks_surjected_onto_asms/{sample}_ALL_global_peaks_surjected_onto_{asm}.bed" for asm in asm_wildcards]
+CHM13_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/CHM13_global_peaks_surjected_onto_asms/{sample}_CHM13_global_peaks_surjected_onto_{asm}.bed" for asm in unique_asms]
+NonCHM13_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/nonCHM13_global_peaks_surjected_onto_asms/{sample}_nonCHM13_global_peaks_surjected_onto_{asm}.bed" for asm in unique_asms]
+combined_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/Combined_global_peaks_surjected_onto_asms/{sample}_ALL_global_peaks_surjected_onto_{asm}.bed" for asm in unique_asms]
 
 run_modified_pileup=[f"{global_output_dir}/{sample}/run_pileup_counts/{run}_{asm}/{run}_{asm}_modified_pileup.bed" for run, asm in all_sample_pileup_pairs]
 
