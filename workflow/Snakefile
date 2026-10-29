@@ -181,7 +181,8 @@ if graph=="NA":
 if GRAPH_ONLY == True:
     All_Targets = f"{graphs_dir}/{sample}.full_all_chrs.gbz"
 else:
-    All_Targets = f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
+    All_Targets = [f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv",
+                   f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed"]
 
 rule all:
     input:
@@ -1146,7 +1147,6 @@ rule make_metadata_table:
         moved_to_hg38=rules.combine_GRCh38_transferred_peaks.output.combined_out,
         orig_peaks_intersect_cons=rules.intersect_original_and_transferred_consensus_peaks.output.intersect_out,
         surj_peaks_intersect_cons=rules.intersect_cons_surjected_peaks_w_consensus_peaks.output.out,
-        seq_file=rules.get_native_peak_sequences.output.seq_out,
         graph_prefixes_input=graph_prefixes_input
     output:
         meta_tbl=f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
@@ -1164,6 +1164,7 @@ rule make_metadata_table:
         Rscript {WORKFLOW_DIR}/scripts/call_peaks_make_metadata_table.R \
             {global_output_dir}/{sample}/ \
             {sample} \
-            {input.graph_prefixes_input}
+            {input.graph_prefixes_input} \
+            {threads}
         """
 
