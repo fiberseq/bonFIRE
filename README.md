@@ -109,7 +109,9 @@ Fields to include: <br>
 **split_graph**: If graph is being generated, should it be split by chromosome? Default is False, but may need to split for larger graphs. <br>
 **make_graph_only**: Default False. Make True if you'd like to make the graph only, without consensus peak calling. <br>
 **graph_mem**: 300000 (Can increase for large graphs) <br>
-**graph_runtime**: 1440 (In minutes. Can increase for large graphs.) 
+**graph_runtime**: 1440 (In minutes. Can increase for large graphs.) <br>
+**vg_mem_mb**: Default 80000. Memory for the vg inject/surject steps; depends on the graph (about 11 GB for a 4-haplotype graph, 60 GB for an 11-sample graph, 180 GB for an 82-sample HPRC graph). Jobs that fail are retried twice with double the memory each time. <br>
+**vg_threads**: Default 8. CPUs for the vg inject/surject steps.
 
 ## Consensus Peak Calling Approach
 
@@ -147,7 +149,7 @@ Many metadata columns are appended to this output to facilitate downstream analy
 
 ## Outputs
 
-The main output from this pipeline is called **[sample]_final_tbl_w_metadata.tsv** . All columns are described below, with the most commonly used columns starred (*).
+The main output from this pipeline is called **[sample]_final_tbl_w_metadata.tsv.gz** (gzipped; read it with `zless`, or directly with `data.table::fread()` or `read.table()` in R). All columns are described below, with the most commonly used columns starred (*).
 
 \***sample_id**: A sample id that distinguished between two haplotypes (e.g. TestSample_1, TestSample_2)
 
@@ -173,11 +175,11 @@ The main output from this pipeline is called **[sample]_final_tbl_w_metadata.tsv
 
 **exists_in_hg38**: TRUE/FALSE. TRUE is values in the previous 3 columns are not NA
 
-**overlaps_original_called_peak**: TRUE if there was at least one peak overlapping this consensus peak location in the original FIRE dataset for this sample. This information should be used with caution, as differences in coverage between samples can impact whether a peak rose above the FDR threshold in the original FIRE calling scheme. 
+**overlaps_original_called_peak**: TRUE if there was at least one peak overlapping this consensus peak location in the original FIRE dataset for this sample (this run only, not other runs on the same assembly). This information should be used with caution, as differences in coverage between samples can impact whether a peak rose above the FDR threshold in the original FIRE calling scheme. 
 
 **num_overlapping_orig_peaks**: The number of originally called FIRE peaks that	overlap this consensus peak region. This can be informative for identifying structural differences that resulted in multiple distinct peaks being transferred to a single location on the assembly where the consensus peak was defined. This can happen, for example, when a duplication event results in multiple regions in one assembly being associated with a single region in another. Because the main purpose of this column is to flag these events, this number is corrected to only count as distinct peaks that are far enough apart from one another to plausibly arise from this type of event. 
 
 **orig_peaks_overlapping_consensus**: Positions of originally called peaks which overlap this consensus peak region. This can be useful for troubleshooting/identifying regions where structural differences may complicate direct comparison. *This set is NOT filtered for very nearby peaks as is done for calculating '**num_overlapping_orig_peaks**'; thus there are occasionally more peaks listed here than the number found in that column. 
 
-**seq**: The underlying sequence of this consensus peak region. This can be useful in order to determine whether differences in accessibility are mediated by sequence changes. Keep in mind that the way assemblies are constructed may result in unsynchronized sequence complementarity. Thus, one must consider the reverse complement of sequences in order to compare between them. For an example of how to do this see this vignette (**TO DO**).
+**Sequences** are not a column of this table (one copy per run made the table very large). They are in **[sample]_transferred_cons_peaks_native_sequences_from_main_output.bed.gz** (bgzipped; columns: asm_chr, asm_start, asm_end, consensus_peak_id, seq), and can be joined to this table on asm_chr, asm_start and asm_end. Each is the underlying sequence of the consensus peak region on that assembly. This can be useful in order to determine whether differences in accessibility are mediated by sequence changes. Keep in mind that the way assemblies are constructed may result in unsynchronized sequence complementarity. Thus, one must consider the reverse complement of sequences in order to compare between them. For an example of how to do this see this vignette (**TO DO**).
 

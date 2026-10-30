@@ -33,15 +33,20 @@ next_asm_file=args[7]
 asm_conversion_file=args[8]
 
 #length_change_filter=.2
-length_change_filter=args[9]
+length_change_filter=as.numeric(args[9])
 
 asm_input = read.table(asm_conversion_file, header = F, sep = "\t", stringsAsFactors = F, comment.char = "")
 colnames(asm_input) = c("asm_orig_substring", "asm_graph", "fasta_input")
 asm_input_sub = asm_input[!grepl("#", asm_input$asm_orig_substring),]
 
 orig_bed = read.table(orig_bed_file, header = T, sep = "\t", stringsAsFactors = F, comment.char = "")
-surj_bed = read.table(surj_bed_file, header = F, sep = "\t", stringsAsFactors = F, comment.char = "")
 colnames(orig_bed) = gsub("X.", "", colnames(orig_bed))
+# the surjected bed is empty when no peaks surjected onto this assembly
+if(file.size(surj_bed_file) > 0){
+  surj_bed = read.table(surj_bed_file, header = F, sep = "\t", stringsAsFactors = F, comment.char = "")
+} else {
+  surj_bed = orig_bed[0,]
+}
 
 colnames(surj_bed) = colnames(orig_bed)
 
@@ -57,7 +62,7 @@ orig_bed_NOT_surj = orig_bed[which(!(orig_bed$peak_id %in% surj_bed$peak_id)),]
 
 surj_bed_ord = surj_bed[match(orig_bed_surj$peak_id,surj_bed$peak_id),]
 
-orig_bed_surj$surjected_asm= last_surj_asm
+orig_bed_surj$surjected_asm = rep(last_surj_asm, nrow(orig_bed_surj))
 orig_bed_surj$surj_chr = surj_bed_ord$chrom
 orig_bed_surj$surj_start = surj_bed_ord$start
 orig_bed_surj$surj_end = surj_bed_ord$end
