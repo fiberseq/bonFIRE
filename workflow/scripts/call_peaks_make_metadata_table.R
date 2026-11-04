@@ -51,6 +51,10 @@ prefix=args[2]
 sample_pefix_file_name=args[3]
 threads=if(length(args) >= 4) as.integer(args[4]) else 1
 setDTthreads(threads)
+## CHM13 chromosome names, one per line
+ref_chrs=readLines(args[5])
+## one _previous_peaks_{asm}.tsv per assembly
+previous_peak_files=args[-(1:5)]
 
 progress("reading inputs")
 tbl = read_tsv(paste0(input_dir, prefix, "_max_score_per_peak_all_samples.bed"), header = T)
@@ -282,4 +286,31 @@ u = unique(updated_tbl$fire_cov_OV_cov)
 updated_tbl[, fire_cov_OV_cov := as.character(u)[match(fire_cov_OV_cov, u)]]
 ## gzipped because of the .gz name; the table is large (~44 GB for 59 runs uncompressed)
 fwrite(updated_tbl, paste0(output_dir, prefix, "_final_tbl_w_metadata.tsv.gz"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
+
+progress("combining previous peak files")
+## a peak repeated with the same answer is fine; one with different answers in different files is an error
+previous_peaks = unique(rbindlist(lapply(previous_peak_files, fread, colClasses = "character")))
+conflicts = previous_peaks[, .N, by = consensus_peak_id][N > 1]
+if(nrow(conflicts) > 0){
+  print(previous_peaks[consensus_peak_id %in% conflicts$consensus_peak_id])
+  stop(nrow(conflicts), " consensus peaks have different chr/previous_peak values in different files")
+}
+fwrite(previous_peaks, paste0(output_dir, prefix, "_previous_peaks_nonRef_chrs.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t")
+
+progress("summarizing each consensus peak")
+## one row per consensus peak; hg38 info is the same in every row of a peak
+peak_summary = updated_tbl[, .(cons_chr = cons_chr[1],
+                               exists_in_hg38 = any(exists_in_hg38),
+                               num_asms_transferred_to = uniqueN(asm[!is.na(asm_chr) & !is.na(asm)])),
+                           by = consensus_peak_id]
+peak_summary[, exists_in_CHM13 := cons_chr %in% ref_chrs]
+## non-reference peaks were called on an assembly in the graph, e.g. SMHT004#1#haplotype1-0000001 -> SMHT004_1
+peak_summary[, consensus_peak_asm := ifelse(exists_in_CHM13, "CHM13",
+                                            sample_prefix_file$graph_asm[match(id_chr_w_hash(cons_chr), sample_prefix_file$asm)])]
+m = match(peak_summary$consensus_peak_id, previous_peaks$consensus_peak_id)
+peak_summary[, chr := ifelse(exists_in_CHM13, cons_chr, previous_peaks$chr[m])]
+peak_summary[, previous_peak_for_nonRef := ifelse(exists_in_CHM13, NA_character_, previous_peaks$previous_peak[m])]
+peak_summary[, cons_chr := NULL]
+setcolorder(peak_summary, c("consensus_peak_id", "consensus_peak_asm", "chr", "exists_in_CHM13", "exists_in_hg38", "num_asms_transferred_to", "previous_peak_for_nonRef"))
+fwrite(peak_summary, paste0(output_dir, prefix, "_consensus_peak_summary.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
 progress("done")

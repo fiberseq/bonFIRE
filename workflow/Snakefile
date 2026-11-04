@@ -70,11 +70,17 @@ bad_sample_names = [s for s in input_tbl["sample_name"] if any(c in s for c in "
 if bad_sample_names:
     sys.exit(f"sample_name can't contain '|' or ';': {bad_sample_names}")
 
+# the one file in each FIRE output folder matching pattern; stops with every folder that has none
+def find_fire_files(pattern):
+    found = [next(Path(x).glob(pattern), None) for x in input_tbl["path_to_fire_output_folder"]]
+    missing = [f"{s}: {x}" for s, x, f in zip(input_tbl["sample_name"], input_tbl["path_to_fire_output_folder"], found) if f is None]
+    if missing:
+        sys.exit(f"No {pattern} file in these FIRE output folders:\n" + "\n".join(missing))
+    return [str(f) for f in found]
+
 if GRAPH_ONLY==False:
-    input_tbl["peaks_file"] = input_tbl["path_to_fire_output_folder"].apply(
-    lambda x: str(next(Path(x).glob("*peaks.bed.gz")))
-    )
-else: 
+    input_tbl["peaks_file"] = find_fire_files("*peaks.bed.gz")
+else:
     input_tbl["peaks_file"] = "NA"
 
 
@@ -86,9 +92,7 @@ PEAKS_FILES_AND_NAMES = list(
 )
 
 if GRAPH_ONLY==False:
-    input_tbl["pileup_path"] = input_tbl["path_to_fire_output_folder"].apply(
-        lambda x: str(next(Path(x).glob("*pileup.bed.gz")))
-    )
+    input_tbl["pileup_path"] = find_fire_files("*pileup.bed.gz")
 else:
     input_tbl["pileup_path"] = "NA"
 
@@ -186,6 +190,8 @@ if GRAPH_ONLY == True:
     All_Targets = f"{graphs_dir}/{sample}.full_all_chrs.gbz"
 else:
     All_Targets = [f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv.gz",
+                   f"{global_output_dir}/{sample}/{sample}_previous_peaks_nonRef_chrs.tsv",
+                   f"{global_output_dir}/{sample}/{sample}_consensus_peak_summary.tsv",
                    f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed.gz"]
 
 rule all:
@@ -219,7 +225,8 @@ rule combine_peaks:
 
 rule make_bed_with_haps_and_peakIDs:
     input:
-        input_bed=rules.combine_peaks.output.combined_peaks_bed
+        input_bed=rules.combine_peaks.output.combined_peaks_bed,
+        graph_prefixes_input=graph_prefixes_input
     output:
         output_bed=f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs.bed.gz",
         output_bed_unzipped=temp(f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs.bed")
@@ -232,8 +239,16 @@ rule make_bed_with_haps_and_peakIDs:
         exec > {log} 2>&1
         (
             gzip -cd "{input.input_bed}" 2>/dev/null || cat "{input.input_bed}"
-        ) | awk -F'\t' '
-            BEGIN {{ OFS="\t" }}
+        ) | awk -F'\t' -v prefixes="{input.graph_prefixes_input}" '
+            BEGIN {{
+                OFS="\t"
+                # hap subtags from the input file (first column); a contig is kept only if its
+                # name contains one, since only those contigs get a graph path name
+                while ((getline line < prefixes) > 0) {{
+                    split(line, f, "\t")
+                    subtags[f[1]] = 1
+                }}
+            }}
             NR == 1 && $2 !~ /^[0-9]+$/ {{
                 print $0, "peak_id"
                 next
@@ -247,6 +262,14 @@ rule make_bed_with_haps_and_peakIDs:
             }}
             /unassigned/ {{ next }}
             {{
+                if (!($1 in has_subtag)) {{
+                    has_subtag[$1] = 0
+                    for (t in subtags) if (index($1, t)) {{ has_subtag[$1] = 1; break }}
+                }}
+                if (!has_subtag[$1]) {{
+                    n_no_subtag[$1]++
+                    next
+                }}
                 # peak_id is chrom_start_end-run, so runs sharing an assembly keep their own peaks
                 peak_id = $1"_"$2"_"$3"-"$4
                 if (seen[peak_id]++) {{
@@ -257,6 +280,7 @@ rule make_bed_with_haps_and_peakIDs:
             }}
             END {{
                 if (n_dup) print "Removed " n_dup " duplicate peaks (same run and coordinates)" > "/dev/stderr"
+                for (c in n_no_subtag) print "Removed " n_no_subtag[c] " peaks on " c ", which matches no hap subtag in the input file" > "/dev/stderr"
             }}' > {output.output_bed_unzipped}
 
         bgzip -c {output.output_bed_unzipped} > {output.output_bed}
@@ -865,6 +889,45 @@ rule combined_CHM13_and_NonCHM13_transferred_peak_files:
         cat {input.chm13_peaks_bed} {input.NonChm13_peaks_bed} > {output.bed_combined}
         """
 
+rule list_chm13_chromosomes:
+    input:
+        chm13_fasta=chm13_fasta
+    output:
+        chroms=f"{global_output_dir}/{sample}/{sample}_CHM13_chromosomes.txt"
+    log:
+        f"{log_dir}/list_chm13_chromosomes.log"
+    shell:
+        """
+        exec > {log} 2>&1
+        # the name is the first word of each header line
+        grep '^>' {input.chm13_fasta} | sed -e 's/^>//' -e 's/[[:space:]].*//' > {output.chroms}
+        """
+
+rule determine_previous_peak_for_nonRef_chrs:
+    input:
+        bed=rules.combined_CHM13_and_NonCHM13_transferred_peak_files.output.bed_combined,
+        graph_prefixes_input=graph_prefixes_input,
+        ref_chroms=rules.list_chm13_chromosomes.output.chroms
+    output:
+        previous_peaks=f"{global_output_dir}/{sample}/temp_previous_peak_files/{sample}_previous_peaks_{{asm}}.tsv"
+    conda:
+        "envs/R_env.yml"
+    resources:
+        mem_mb=mem_for(16000),
+        runtime=60*2
+    log:
+        f"{log_dir}/determine_previous_peak_for_nonRef_chrs_{{asm}}.log"
+    shell:
+        """
+        exec > {log} 2>&1
+        Rscript {WORKFLOW_DIR}/scripts/261030_determine_previous_peak_for_nonRef_chrs.R \
+            {input.bed} \
+            {input.graph_prefixes_input} \
+            {wildcards.asm} \
+            {input.ref_chroms} \
+            {output.previous_peaks}
+        """
+
 rule subset_pileup_file:
     input:
         pileup=get_pileup,
@@ -1151,9 +1214,13 @@ rule make_metadata_table:
         moved_to_hg38=rules.combine_GRCh38_transferred_peaks.output.combined_out,
         orig_peaks_intersect_cons=rules.intersect_original_and_transferred_consensus_peaks.output.intersect_out,
         surj_peaks_intersect_cons=rules.intersect_cons_surjected_peaks_w_consensus_peaks.output.out,
-        graph_prefixes_input=graph_prefixes_input
+        graph_prefixes_input=graph_prefixes_input,
+        ref_chroms=rules.list_chm13_chromosomes.output.chroms,
+        previous_peaks=expand(rules.determine_previous_peak_for_nonRef_chrs.output.previous_peaks, asm=unique_asms)
     output:
-        meta_tbl=f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv.gz"
+        meta_tbl=f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv.gz",
+        previous_peaks=f"{global_output_dir}/{sample}/{sample}_previous_peaks_nonRef_chrs.tsv",
+        peak_summary=f"{global_output_dir}/{sample}/{sample}_consensus_peak_summary.tsv"
     conda:
         "envs/R_env.yml"
     threads: 4
@@ -1169,6 +1236,8 @@ rule make_metadata_table:
             {global_output_dir}/{sample}/ \
             {sample} \
             {input.graph_prefixes_input} \
-            {threads}
+            {threads} \
+            {input.ref_chroms} \
+            {input.previous_peaks}
         """
 

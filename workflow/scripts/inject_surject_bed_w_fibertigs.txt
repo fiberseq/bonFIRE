@@ -29,6 +29,23 @@ ${graph_prefixes_input} \
 $fibertigs_out \
 $prepare_for_inject_out
 
+echo "Checking that every contig with peaks is in the graph"
+# vg inject crashes on a contig that isn't a graph path, and its crash handler can hang until the
+# job's time limit, so stop here with the missing names instead
+# (no process substitution: the Snakefile runs this with sh, which doesn't allow it)
+graph_paths=$(mktemp)
+vg paths -L -x $graph > $graph_paths
+# grep exits 1 when every contig is found, which is the passing case
+missing=$(samtools view -@ $threads $prepare_for_inject_out | cut -f3 | uniq | LC_ALL=C sort -u | \
+    { grep -vxF -f $graph_paths || [ $? -eq 1 ]; })
+rm -f $graph_paths
+if [ -n "$missing" ]; then
+    echo "These contigs have peaks but are not paths in $graph:"
+    echo "$missing" | head -20
+    echo "($(echo "$missing" | wc -l) in total)"
+    exit 1
+fi
+
 echo "Running inject"
 vg inject -x $graph -o gam -t $threads $prepare_for_inject_out > $gam
 

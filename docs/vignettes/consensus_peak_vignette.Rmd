@@ -1,0 +1,192 @@
+---
+title: "bonFIRE: calling peaks, haplotype-selective peaks, and sequence matching"
+output:
+  html_document:
+    toc: true
+params:
+  input_dir: "../../tests/parallel_test/SMHT043_Test_gzip/"
+  prefix: "SMHT043_Test_gzip"
+  min_cov: 10
+  min_fire_cov: 4
+  min_frac_acc: 0.2
+  min_cov_hap_test: 10
+  significance: "fdr"
+  significance_cutoff: 0.05
+  exclude_sex_chrs: true
+  use_tissue: false
+---
+
+This vignette starts from the outputs of the bonFIRE consensus peak calling pipeline, in
+`<output_dir>/<prefix>/`:
+
+- `<prefix>_final_tbl_w_metadata.tsv.gz`: one row per consensus peak per run (see the README for the columns)
+- `<prefix>_transferred_cons_peaks_native_sequences_from_main_output.bed.gz`: the sequence of each consensus peak on each assembly
+
+Every cutoff below is a parameter. Change them in the header above, or when rendering:
+
+```r
+rmarkdown::render("consensus_peak_vignette.Rmd",
+                  params = list(input_dir = "/path/to/output_dir/my_sample/", prefix = "my_sample",
+                                min_cov = 15, significance = "p", significance_cutoff = 0.01))
+```
+
+```{r setup, message = FALSE}
+library(data.table)
+library(Biostrings)
+library(ggplot2)
+
+tbl = fread(paste0(params$input_dir, params$prefix, "_final_tbl_w_metadata.tsv.gz"), na.strings = "NA")
+dim(tbl)
+```
+
+# 1. Calling peaks
+
+A consensus peak is a peak in a run if it passes all three cutoffs in that run:
+
+| parameter | value | meaning |
+|---|---|---|
+| `min_cov` | `r params$min_cov` | minimum coverage |
+| `min_fire_cov` | `r params$min_fire_cov` | minimum FIRE coverage |
+| `min_frac_acc` | `r params$min_frac_acc` | minimum fraction accessible (`fire_cov_OV_cov`) |
+
+```{r call-peaks}
+## peaks that weren't transferred to a run's assembly have NA coverage; %in% TRUE makes them FALSE
+tbl[, is_peak := (coverage >= params$min_cov &
+                  fire_coverage >= params$min_fire_cov &
+                  fire_cov_OV_cov >= params$min_frac_acc) %in% TRUE]
+
+## peaks called in each run
+tbl[, .(consensus_peaks = .N, called_peaks = sum(is_peak)), by = sample_id]
+```
+
+# 2. Pairing the two haplotypes of each run
+
+`sample_id` is the run followed by the assembly, e.g. `SMHT004_liver_SMHT004_1`. The last field
+is the haplotype, and everything before it identifies the run.
+
+If there are several runs per assembly (e.g. several tissues per donor), the run name may hold a
+descriptor to group them by. Here that is a `tissue`, and the FDR correction below is done within
+each one. With one run per assembly there is nothing to group by: leave `use_tissue` off
+(`r params$use_tissue`) and every run is corrected together. `return_tissue` is an example of
+pulling a descriptor out of the name; change it to match how your runs are named.
+
+```{r haplotypes}
+tbl[, haplotype := sub("^.*_", "", sample_id)]
+tbl[, sample := sub("_[^_]*$", "", sample_id)]
+
+## example: SMHT004_liver_SMHT004 -> liver; with a PS id, everything between it and the last
+## field (HG00438_PS00991_ONT_HG00438 -> ONT)
+return_tissue = function(sample){
+  temp = strsplit(sample, "_")[[1]]
+  if(grepl("_PS", sample)){
+    return(paste0(temp[3:(length(temp)-1)], collapse = "_"))
+  } else {
+    return(temp[2])
+  }
+}
+if(params$use_tissue){
+  samples = unique(tbl$sample)
+  tbl[, tissue := sapply(samples, return_tissue)[match(sample, samples)]]
+} else {
+  tbl[, tissue := "all"]
+}
+
+## haplotypes differ in copy number on chrX and chrY, so these can be left out of the test
+tbl[, autosomal := !(cons_chr %in% c("chrY", "chrX")) & !(hg38_chr %in% c("chrY", "chrX"))]
+
+unique(tbl[, .(sample, tissue)])
+```
+
+# 3. Does the underlying sequence match between haplotypes?
+
+Sequences are in their own file (it has no header), one row per consensus peak on each assembly.
+They are joined to the table by the peak's coordinates on that assembly.
+
+```{r sequences}
+seqs = fread(paste0(params$input_dir, params$prefix, "_transferred_cons_peaks_native_sequences_from_main_output.bed.gz"),
+             header = FALSE, col.names = c("asm_chr", "asm_start", "asm_end", "consensus_peak_id", "seq"))
+tbl = merge(tbl, unique(seqs), by = c("asm_chr", "asm_start", "asm_end", "consensus_peak_id"),
+            all.x = TRUE, sort = FALSE)
+
+## one row per consensus peak and run, with the two haplotypes side by side (coverage_1, coverage_2, ...)
+tbl_haplotype = dcast(tbl, consensus_peak_id + sample + tissue + autosomal ~ haplotype,
+                      value.var = c("coverage", "fire_coverage", "fire_cov_OV_cov", "is_peak", "seq"))
+```
+
+An assembly contig can run in either direction relative to the other haplotype's, so the two
+sequences match if they are identical **or** one is the reverse complement of the other. They are
+compared in upper case, in case an assembly is soft-masked.
+
+```{r seqs-match}
+tbl_haplotype[, seq_1 := toupper(seq_1)]
+tbl_haplotype[, seq_2 := toupper(seq_2)]
+has_seq_2 = which(!is.na(tbl_haplotype$seq_2))
+seq_2_rev_comp = rep(NA_character_, nrow(tbl_haplotype))
+seq_2_rev_comp[has_seq_2] = as.character(reverseComplement(DNAStringSet(tbl_haplotype$seq_2[has_seq_2])))
+## NA if the peak is missing from either haplotype
+tbl_haplotype[, seqs_match := fifelse(is.na(seq_1) | is.na(seq_2), NA,
+                                      seq_1 == seq_2 | seq_1 == seq_2_rev_comp)]
+
+tbl_haplotype[, .N, by = seqs_match]
+```
+
+# 4. Haplotype-selective peaks
+
+For each run and consensus peak measured on both haplotypes, a Fisher's exact test compares FIRE
+and non-FIRE coverage between them. P values are corrected (Benjamini–Hochberg) across all runs,
+or within each tissue if `use_tissue` is on. A peak is called haplotype-selective if both haplotypes have at least `min_cov_hap_test`
+(`r params$min_cov_hap_test`) coverage and its `significance` value is below
+`significance_cutoff`. `significance` is `"fdr"` (the corrected p value, `fisher_fdr`) or `"p"`
+(the raw p value, `fisher_p`); here it is the `r params$significance` below
+`r params$significance_cutoff`. Both columns are kept, so you can also subset on either afterwards.
+
+```{r hap-test}
+tbl_haplotype_filt = tbl_haplotype[!is.na(coverage_1) & !is.na(coverage_2)]
+if(params$exclude_sex_chrs){
+  tbl_haplotype_filt = tbl_haplotype_filt[autosomal == TRUE]
+}
+
+tbl_haplotype_filt[, nonfire_1 := coverage_1 - fire_coverage_1]
+tbl_haplotype_filt[, nonfire_2 := coverage_2 - fire_coverage_2]
+
+## for very large tables, future.apply::future_mapply(..., future.seed = TRUE) runs this in parallel
+tbl_haplotype_filt[, fisher_p := mapply(
+  function(a, b, c, d) fisher.test(matrix(c(a, b, c, d), nrow = 2))$p.value,
+  fire_coverage_1, nonfire_1, fire_coverage_2, nonfire_2
+)]
+tbl_haplotype_filt[, fisher_fdr := p.adjust(fisher_p, method = "BH"), by = tissue]
+
+tbl_haplotype_filt[, both_haps_meet_min_coverage := coverage_1 >= params$min_cov_hap_test &
+                                                     coverage_2 >= params$min_cov_hap_test]
+stopifnot(params$significance %in% c("fdr", "p"))
+significance_value = if(params$significance == "fdr") tbl_haplotype_filt$fisher_fdr else tbl_haplotype_filt$fisher_p
+tbl_haplotype_filt[, hap_selective := significance_value < params$significance_cutoff & both_haps_meet_min_coverage]
+tbl_haplotype_filt[, more_accessible_hap := fifelse(fire_cov_OV_cov_1 > fire_cov_OV_cov_2, "1", "2")]
+
+tbl_haplotype_filt[, .(tested = .N, hap_selective = sum(hap_selective)), by = tissue]
+```
+
+A haplotype-selective peak whose sequences differ between the haplotypes may be driven by the
+sequence change itself:
+
+```{r hap-vs-seq}
+tbl_haplotype_filt[, .N, by = .(hap_selective, seqs_match)][order(-hap_selective, seqs_match)]
+```
+
+```{r hap-plot, fig.width = 6, fig.height = 5}
+ggplot(tbl_haplotype_filt[both_haps_meet_min_coverage == TRUE],
+       aes(x = fire_cov_OV_cov_1, y = fire_cov_OV_cov_2, colour = hap_selective)) +
+  geom_point(alpha = 0.6) +
+  geom_abline(linetype = "dashed") +
+  scale_colour_manual(values = c(`FALSE` = "grey70", `TRUE` = "purple")) +
+  labs(x = "fraction accessible, haplotype 1", y = "fraction accessible, haplotype 2",
+       colour = "haplotype-selective") +
+  theme_bw()
+```
+
+To save the results:
+
+```{r save, eval = FALSE}
+fwrite(tbl_haplotype_filt[, !c("seq_1", "seq_2")], paste0(params$prefix, "_hap_selective_peaks.tsv"),
+       sep = "\t", na = "NA")
+```
