@@ -271,20 +271,30 @@ rule make_bed_with_haps_and_peakIDs:
                     n_no_subtag[$1]++
                     next
                 }}
-                # peak_id is chrom_start_end-run, so runs sharing an assembly keep their own peaks
+                # peak_id is chrom_start_end-run; duplicates are kept here and removed below
                 peak_id = $1"_"$2"_"$3"-"$4
-                if (seen[peak_id]++) {{
-                    n_dup++
-                    next
-                }}
                 print $0, peak_id
             }}
             END {{
-                if (n_dup) print "Removed " n_dup " duplicate peaks (same run and coordinates)" > "/dev/stderr"
                 for (c in n_no_subtag) print "Removed " n_no_subtag[c] " peaks on " c ", which matches no hap subtag in the input file" > "/dev/stderr"
             }}' > {output.output_bed_unzipped}
 
-        bgzip -c {output.output_bed_unzipped} > {output.output_bed}
+        # REPRODUCTION BRANCH: this re-creates how the April 2026 HPRC run removed duplicate peaks, so
+        # that run's peak counts can be reproduced. It is a known bug, fixed on main/dev_branch:
+        #   1. duplicates are found on chrom_start_end alone, so a peak called at the same coordinates
+        #      in two runs of the same assembly is a duplicate, and ALL copies are removed (not one)
+        #   2. grep -F without -x matches substrings, so a line whose peak_id merely contains a
+        #      duplicated ID (e.g. chr1_100_2005 for chr1_100_200) is also removed
+        duplicates=$(mktemp)
+        tail -n +2 {output.output_bed_unzipped} | awk -F'\t' '{{print $1"_"$2"_"$3}}' | sort | uniq -d > $duplicates
+        if [[ -s $duplicates ]]; then
+            echo "Removing every peak matching one of $(wc -l < $duplicates) duplicated chrom_start_end IDs"
+            grep -v -F -f $duplicates {output.output_bed_unzipped} | bgzip > {output.output_bed}
+        else
+            bgzip -c {output.output_bed_unzipped} > {output.output_bed}
+        fi
+        rm -f $duplicates
+        echo "Peaks kept: $(( $(zcat {output.output_bed} | wc -l) - 1 ))"
         """
 
 rule combine_fastas:
