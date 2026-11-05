@@ -6,7 +6,7 @@ The input to bonFIRE is one or several [FIRE](https://fiberseq.github.io/fire/ru
 
 ### Some common use cases for bonFIRE are:
 
-(1) Compare the chromatin landscape between samples processed against a **common haploid reference** (e.g. GRCh38).
+(1) Compare the chromatin landscape between samples processed against a **common haploid reference** (e.g. GRCh38). This function runs from a separate repo, linked below.
 
 (2) Compare the chromatin landscape between two haplotypes in a single sample, processed against its **own native diploid assembly**. We can perform this analysis for a single sample, or for a group of samples all processed against a common diploid assembly. These samples may be different tissues from one individual, different experimental conditions, etc. 
 
@@ -74,7 +74,7 @@ And in place of `...` use all the normal Snakemake arguments for your workflow.
 ## Input files
 
 The bonFIRE pipeline can do several things:
-(1) Generate a pangenome graph only, which includes CHM13, GRCh38, and all provided assemblies <br>
+(1) Generate a pangenome graph only, which includes CHM13, GRCh38, and all provided assemblies. <br>
 (2) Generate pangenome graph and perform consensus peak calling <br>
 (3) Perform consensus peak calling with a provided graph (This is safest to do with a graph generated via this pipeline!)
 
@@ -101,17 +101,19 @@ Fields to include: <br>
 **prefix**: run prefix <br>
 **input_file**: Described above <br>
 **ft_path:** path to the `ft` (fibertools) binary to use. If removed, the `ft` in the pipeline's environment is used. Note: in fibertools v0.13.0, peaks on fibertigs that surject onto the reverse strand are lost (they can't be extracted after `vg surject`), so most peaks end up in the "not transferred" fraction. Until that is fixed, point this at a build that works (we used v0.9.0). <br>                                                                 
-**ft_param**: Default 1000. Keep as is for most cases. <br>
+**ft_param**: Default 1000. Peaks are 'strung together' into longer sequences to aid surjection onto the correct path. Keep as is for most cases. <br>
 **graph**: path to graph if one has already been generated. If not, remove this line, and a graph will be generated for you. A provided graph must contain every contig in the input fastas, including those Minigraph-Cactus leaves out; when the pipeline builds the graph it adds them back (graph/[prefix].full_all_chrs.gbz), so use that file rather than [prefix].full.gbz. If a contig is missing, `vg inject` fails with "alignment references path not present in graph". <br>
 **CHM13_fasta_path**: Path to CHM13 fasta <br>
 **hg38_fasta_path**: Path to GRCh38 fasta <br>
-**Peak_length_change_param**: 1 (Keep as is) <br>
+**Peak_length_change_param**: 1 (Keep as is). If a peak length changes by more than 100% after surjection, it will be considered not surjected to that assembly. <br>
 **split_graph**: If graph is being generated, should it be split by chromosome? Default is False, but may need to split for larger graphs. <br>
 **make_graph_only**: Default False. Make True if you'd like to make the graph only, without consensus peak calling. <br>
 **graph_mem**: 300000 (Can increase for large graphs) <br>
 **graph_runtime**: 1440 (In minutes. Can increase for large graphs.) <br>
-**vg_mem_mb**: Default 80000. Memory for the vg inject/surject steps; depends on the graph (about 11 GB for a 4-haplotype graph, 60 GB for an 11-sample graph, 180-250 GB for an 82-sample HPRC graph). Jobs that fail are retried twice with double the memory each time. <br>
+**vg_mem_mb**: Default 80000. Memory for the vg inject/surject steps; depends on the graph (about 11 GB for a 4-haplotype graph, 60 GB for an 11-sample graph, 180-250 GB for an 82-sample graph). Jobs that fail are retried twice with double the memory each time. <br>
 **vg_threads**: Default 8. CPUs for the vg inject/surject steps.
+
+**If you would like the pipeline to generate a graph, remove the "graph:" line from this config file and set the other graph parameters. make_graph_only can be True or False depending on whether you want your pipeline to continue with downstream consensus peak calling. If a graph is provided, the other graph parameters won't be used.**
 
 ## Consensus Peak Calling Approach
 
@@ -131,7 +133,7 @@ Individual Fiber-seq dataset FIRE peak calls serve as inputs for consensus peak 
 
 Once this set of consensus peak regions is defined, we pull raw coverage (number of reads) and FIRE coverage (number of reads with FIRE elements) at each consensus peak region for each sample, reporting the position with the maximum FIRE coverage if it differs across the length of the region.  
 
-The output is a table containing values shown below (see **Output** below for all column descriptions), containing these values for each sample at each consensus peak region. We can thus calculate a chromatin accessibility score, and define custom filters for samples and/or consensus peak regions based on minimum coverage, for example. Thus, peaks not called in some samples due to relatively low coverage, can be rescued with this approach, and chromatin accessibility can be compared quantitatively even at regions where a peak was not originally called in all samples.
+The output is a table containing values shown below (see **Output** below for all column descriptions), containing these values for each sample at each consensus peak region. We can thus calculate a chromatin accessibility score, and define custom filters for samples and/or consensus peak regions based on minimum coverage, for example. Thus, peaks not called in some samples due to relatively low coverage, can be rescued with this approach, and chromatin accessibility can be compared quantitatively even at regions where a peak was not originally called in all samples. (**Outputs generated via the repo linked above may be slightly different than these**)
 
 <img width="774" height="284" alt="consensus_peak_calling_image2" src="https://github.com/user-attachments/assets/59320439-e7a8-47f2-bef6-4daf17227cc3" />
 
@@ -141,7 +143,7 @@ As with the above approach, the input for this pipeline are the peak outputs fro
 
 Conceptually, this approach mirrors the single assembly approach, but contains additional steps to first move peaks called across different assemblies into a common assembly space via a pangenome graph, followed by calling 'consensus peaks' in that reference space. While the majority of peaks called across assembly spaces are able to be transferred to a common reference (in this case, CHM13), the subset will not. These are peaks in genomic regions which have no homology to CHM13 and thus cannot be represented there. However, these regions may be homologous across multiple other assemblies, and thus we don't want them dropping out of our comparative analysis. Thus, the remaining peaks are transferred to a new assembly, and 'consensus peaks' are defined as above from all peaks that were able to be transferred to this assembly. Because some peaks will still remain as untransferrable to either CHM13 or the new assembly, we iteratively move remaining peaks to other assemblies present in the graph, and call consensus peaks, until every starting peak has contributed to a 'consensus peak'. This process culminates with a set of consensus peaks regions -- a set of genomic chr:start-end intervals defined across multiple assembly spaces.
 
-As in the single reference approach above, we ultimately want to report raw coverage and FIRE coverage values, enabling us to calculate chromatin accessibility at each of these consensus peak regions for each sample. To accomplish this, we again use the graph to move the entire set of consensus peak regions back to each assembly. Using these assembly-specific coordinates, we can pull raw coverage and fire coverage data from the pileup.bed file generated during the original, sample-specific FIRE peak calling step. We merge these into a table containing chromatin accessibility value and metadata for each [sample haplotype]-[consensus peak region] pair, enabling direct chromatin comparison at any region where a peak was originally called in any sample.
+As in the single reference approach above, we ultimately want to report raw coverage and FIRE coverage values, enabling us to calculate chromatin accessibility at each of these consensus peak regions for each sample. To accomplish this, we again use the pangenome graph to move the entire set of consensus peak regions back to each assembly. Using these assembly-specific coordinates, we can pull raw coverage and fire coverage data from the pileup.bed file generated during the original, sample-specific FIRE peak calling step. We merge these into a table containing chromatin accessibility value and metadata for each [sample haplotype]-[consensus peak region] pair, enabling direct chromatin comparison at any region where a peak was originally called in any sample.
 
 <img width="1057" height="495" alt="consensus_peak_calling_image3" src="https://github.com/user-attachments/assets/24d56462-88b8-48ca-ac8d-40cf38f131a1" />
 
@@ -155,8 +157,8 @@ All outputs are written to **[output_dir]/[prefix]/**, and file names start with
 
 | File | Contents |
 |---|---|
-| **[prefix]_final_tbl_w_metadata.tsv.gz** | The main table: one row per consensus peak per sample haplotype (described below). |
-| **[prefix]_consensus_peak_summary.tsv** | One row per consensus peak: where it was called and which assemblies it was transferred to (described below). |
+| **[prefix]_final_tbl_w_metadata.tsv.gz** | The main table: one row per consensus peak per sample haplotype (described below). Chromatin accessibility data is found here. |
+| **[prefix]_consensus_peak_summary.tsv** | One row per consensus_peak_id along with consensus peak region-specific metadata, including which reference chromosome it is associated with, where non-reference peaks lie relative to reference, and whether (and where) the region transfers on CHM13 and GRCh38. (described below). |
 | **[prefix]_previous_peaks_nonRef_chrs.tsv** | For consensus peaks that couldn't be placed on CHM13: the CHM13 chromosome and peak they sit next to (described below). |
 | **[prefix]_transferred_cons_peaks_native_sequences_from_main_output.bed.gz** | The sequence of each consensus peak on each assembly (described below). |
 | **logs/** | One log per rule (and per sample or assembly where a rule runs for each). If a job fails, its log is printed at the end of the run. |
