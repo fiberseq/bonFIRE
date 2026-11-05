@@ -1,0 +1,172 @@
+# Placing non-reference peaks on CHM13
+
+How the pipeline decides where a consensus peak that doesn't exist on CHM13 sits along a CHM13 chromosome, and how that placement is checked against the other assemblies.
+
+## What this is for
+
+Most consensus peaks transfer to CHM13 and have CHM13 coordinates. A **non-reference peak** is one that was called on an assembly contig and didn't transfer to CHM13, so it has no CHM13 position. To order it among CHM13 peaks (for plots, or for anything that walks along a chromosome), the pipeline records the CHM13 chromosome it belongs to and the CHM13 peak it comes just after: its **previous peak**.
+
+The placement uses only the assembly the peak was **called on**. A separate step then compares that placement with every other assembly the peak transferred to and flags disagreements; it never changes the placement.
+
+## Inputs
+
+- **Consensus peaks transferred onto each assembly** (CHM13 peaks and non-reference peaks), with their positions on that assembly's contigs. Per assembly, these are `Combined_global_peaks_surjected_onto_asms/[prefix]_ALL_global_peaks_surjected_onto_[asm].bed` (a temporary file); all of them together are kept in `[prefix]_combined_tranferred_peaks_all_samples.bed`.
+- **The CHM13 consensus peak list**, `[prefix]_CHM13_shared_peaks_6col.bed`, which gives every CHM13 peak's position in chromosome order.
+- **The CHM13 chromosome names**, `[prefix]_CHM13_chromosomes.txt`, to tell CHM13 peaks from non-reference ones (a peak is a CHM13 peak if its `consensus_peak_id` starts with a CHM13 chromosome).
+- **The graph prefix file**, which says which contig names belong to which assembly. An assembly is identified by a subtag in its contig names: a prefix such as `HG00438#1#`, or a tag later in the name such as HG002's `MATERNAL` in `chr10_MATERNAL`.
+
+## Step 1: placement on the called assembly
+
+Script: `workflow/scripts/261030_determine_previous_peak_for_nonRef_chrs.R`, rule `determine_previous_peak_for_nonRef_chrs`, run once per assembly. Each non-reference peak is placed only by the assembly it was called on.
+
+### 1.1 Collect the peaks on this assembly
+
+1. Read every consensus peak transferred onto this assembly, with its contig, start and end on the assembly.
+2. Keep all CHM13 peaks, and the non-reference peaks **called on this assembly**: those whose chromosome name contains this assembly's subtag. Non-reference peaks called on other assemblies are dropped here.
+3. Sort by contig, then by start on the contig.
+
+### 1.2 Find each peak's CHM13 neighbours on its contig
+
+For each non-reference peak, take the nearest CHM13 peak before it and the nearest after it **on the same contig**. A CHM13 peak on another contig never counts as a neighbour. A peak can have:
+
+- CHM13 peaks on both sides, on the same chromosome (case A);
+- a CHM13 peak on one side only, because it is past the last CHM13 peak at one end of its contig, or CHM13 peaks on both sides but on different chromosomes (case B);
+- no CHM13 peak on its contig at all (case C).
+
+### 1.3 Each contig's chromosome and direction
+
+Used only in case B.
+
+- **Chromosome:** the CHM13 chromosome with the most distinct CHM13 peaks on the contig.
+- **Direction:** walk the contig's CHM13 peaks on that chromosome in contig order and count the steps where the CHM13 position goes up and where it goes down. More steps down: the contig is reversed (`R`). Otherwise, including ties and contigs with a single CHM13 peak, it is forward (`F`).
+
+### 1.4 Case A: CHM13 peaks on both sides
+
+1. The chromosome is the neighbours' chromosome.
+2. The previous peak is whichever neighbour is earlier on CHM13. If the earlier one is also the one before the peak on the contig, the contig runs forward here (`orientation = F`); otherwise it is reversed here (`R`).
+3. If the two neighbours have the same CHM13 start, the direction can't be told and the previous peak is `AMB`.
+
+This uses the direction at the peak itself, from its two neighbours, not the contig's overall direction, so a short inversion on the contig is handled.
+
+### 1.5 Case B: one usable side (contig ends)
+
+1. The neighbour on the contig's chromosome (from 1.3) is the **anchor**. If the neighbour before the peak on the contig is on that chromosome, it is the anchor and the peak counts as being at the **contig end** (`contig_position = contig_end`); otherwise the neighbour after it is the anchor and the peak is at the **contig start**. If neither neighbour is on the contig's chromosome, the peak is `AMB` (case C).
+2. The contig's direction says which side of the anchor the peak falls on CHM13:
+
+   | On the contig | Contig direction | On CHM13 | `open_side` |
+   |---|---|---|---|
+   | at the contig end (after the anchor) | F | after the anchor | `next_unknown` |
+   | at the contig start (before the anchor) | R | after the anchor | `next_unknown` |
+   | at the contig start (before the anchor) | F | before the anchor | `previous_unknown` |
+   | at the contig end (after the anchor) | R | before the anchor | `previous_unknown` |
+
+3. Placement, using the full CHM13 consensus peak list:
+   - **After the anchor:** the previous peak is the anchor.
+   - **Before the anchor:** the previous peak is the CHM13 peak just before the anchor in the full list (`AT_START` if the anchor is the chromosome's first CHM13 peak).
+
+   These go in `previous_peak_full_list`, which always names a CHM13 peak where one can be given.
+4. Edges of the chromosome, in `previous_peak`:
+   - **Before the anchor**, where the anchor is **this assembly's first** CHM13 peak on the chromosome (no CHM13 peak earlier on that chromosome was transferred to any contig of this assembly): the peak could be anywhere between the chromosome's start and the anchor, so `previous_peak = AT_START`.
+   - **After the anchor**, where the anchor is **this assembly's last** CHM13 peak on the chromosome: `previous_peak = AT_END`.
+   - Otherwise `previous_peak` is the same as `previous_peak_full_list`.
+5. The orientation is the contig's direction, and `contig_anchor_peak` records the anchor.
+
+> A peak "before the anchor" in the middle of a chromosome is placed just before it, after the CHM13 peak that precedes the anchor in the full list. Earlier versions used the previous CHM13 peak *present in this assembly*, which could be far away.
+
+### 1.6 Case C: no placement
+
+A peak on a contig with no CHM13 peaks, or whose neighbours are both on chromosomes other than the contig's, gets `chr = AMB` and `previous_peak = AMB`.
+
+### 1.7 Output: one row per non-reference peak
+
+Per assembly: `temp_previous_peak_files/[prefix]_previous_peaks_[asm].tsv`. The metadata step combines them into `[prefix]_previous_peaks_nonRef_chrs.tsv` and copies `chr` and `previous_peak` into the consensus peak summary.
+
+| Column | Meaning |
+|---|---|
+| `consensus_peak_id` | the non-reference peak |
+| `chr` | its CHM13 chromosome, or `AMB` |
+| `previous_peak` | the CHM13 peak it comes just after; `AT_START` or `AT_END` at the edges of what this assembly covers of the chromosome; `AMB` if it can't be placed |
+| `orientation` | `F` if the contig runs the same way as CHM13 here, `R` if reversed. Peaks sharing a previous peak run in contig order along CHM13 if `F`, in reverse contig order if `R` |
+| `previous_peak_full_list` | as `previous_peak`, but contig-end peaks are placed beside their anchor even at the chromosome edges; use it for calculations that need a CHM13 peak |
+| `contig_position` | `contig_start` or `contig_end` for case B peaks, `NA` otherwise |
+| `open_side` | for case B peaks, the side not known on CHM13: `previous_unknown` or `next_unknown` |
+| `contig_anchor_peak` | for case B peaks, the CHM13 peak the placement is based on |
+
+## Step 2: checking the placement against the other assemblies
+
+Script: `workflow/scripts/261105_check_previous_peaks_across_assemblies.R`, rule `check_previous_peaks_across_assemblies`, run once for all assemblies. It reads `[prefix]_combined_tranferred_peaks_all_samples.bed`, so every assembly a peak transferred to is seen.
+
+### 2.1 One interval per peak and assembly
+
+In every assembly a non-reference peak transferred to, its CHM13 neighbours on the contig (found as in 1.2) bound where it can be on CHM13. The bounds are positions in the full CHM13 peak list: the peak is **after** one CHM13 peak and **before** another.
+
+- Both neighbours on the same chromosome: the earlier one on CHM13 is the lower bound and the later one the upper bound, whichever way the contig runs.
+- One usable neighbour (as in 1.5): the anchor is a lower or upper bound depending on the contig's direction; the other side is open.
+- No usable neighbour: that assembly gives no interval.
+
+On the called assembly, the interval's bounds are the `called_after_peak` and `called_before_peak` columns. Its lower bound is the previous peak from step 1, except at chromosome edges (`AT_START`, `AT_END`) and for `previous_unknown` peaks, whose lower bound is open.
+
+### 2.2 Does another assembly agree?
+
+An assembly **agrees** if its interval overlaps the called assembly's: some position is after both lower bounds and before both upper bounds. If not, it disagrees, and the check records how far apart the two intervals are (in CHM13 peaks and bp) and the likely cause:
+
+| `conflict_type` | What happened |
+|---|---|
+| `overlaps_CHM13_peak` | on one of the two assemblies the peak overlaps a neighbouring CHM13 peak, so their order there is arbitrary |
+| `inversion` | both assemblies have CHM13 peaks on both sides but run in opposite directions here: a short inversion between them |
+| `contig_end` | one of the intervals comes from a contig end, where the direction is the whole contig's and can be wrong locally |
+| `adjacent` | one assembly puts it just after a CHM13 peak and the other just before the same peak |
+| `nearby` | the intervals are 1 to 5 CHM13 peaks apart |
+| `distant` | more than 5 CHM13 peaks apart (possibly a transfer onto another copy of a repeat) |
+
+The causes are tested in that order; a peak's `conflict_type` is the most common cause among the assemblies that disagree with it.
+
+### 2.3 Copies of CHM13 peaks
+
+Some non-reference peaks land on top of a CHM13 peak in the assemblies they transfer to. In each assembly, the peak is compared with every CHM13 peak overlapping it on the contig. It counts as a **copy** there if the overlap covers at least a set fraction of each peak's length. Two thresholds are reported side by side, **10%** (loose) and **50%** (strict), in columns ending `_10pct` and `_50pct`. A peak is a **likely copy** at a threshold if it is a copy of the same CHM13 peak in at least half of the assemblies it is in. These are probably the same element as that CHM13 peak, one that didn't transfer to CHM13 from the assembly it was called on.
+
+### 2.4 Output: `[prefix]_previous_peak_checks.tsv`, one row per non-reference peak
+
+| Column | Meaning |
+|---|---|
+| `chr` | chromosome of the intervals compared (the called assembly's) |
+| `n_asms_present` | assemblies the peak is in, including the called one |
+| `called_after_peak`, `called_before_peak`, `called_peaks_between` | the called assembly's interval and the number of CHM13 peaks inside it, i.e. how precisely the peak is placed (`NA` on an open side) |
+| `n_asms_checked`, `n_asms_disagree` | other assemblies with an interval on that chromosome, and how many disagree |
+| `conflict_level` | `none`; `minor` (type `overlaps_CHM13_peak` or `adjacent`, or at most 1 CHM13 peak apart); `major`; `not_checked` (no other assembly to compare with); `not_placed` (the called assembly gives no interval) |
+| `conflict_type`, `conflict_gap_peaks`, `conflict_gap_bp` | main cause, and the largest gap between a disagreeing interval and the called one |
+| `called_is_minority` | more than half of the other assemblies disagree with the called one |
+| `n_asms_other_chr` | assemblies that put the peak on a different chromosome |
+| `all_asms_agree`, `all_asms_after_peak`, `all_asms_before_peak`, `all_asms_peaks_between` | whether the intervals of all assemblies overlap, and if so the narrowest placement they allow together |
+| `copy_in_called_asm_10pct`, `n_asms_copy_10pct`, `likely_copy_of_CHM13_peak_10pct` | at 10% overlap: the CHM13 peak it copies on the called assembly, the number of assemblies where it is a copy, and the likely-copy call |
+| `copy_in_called_asm_50pct`, `n_asms_copy_50pct`, `likely_copy_of_CHM13_peak_50pct` | the same at 50% overlap |
+
+`[prefix]_previous_peak_intervals_per_asm.tsv.gz` has the underlying rows: one per peak and assembly, with the interval, the neighbours' kind and direction, the most-overlapping CHM13 peak and its overlap (`reciprocal_overlap`, the smaller of the two peaks' overlapped fractions; `is_copy_10`, `is_copy_50`), and whether the assembly agrees with the called one.
+
+## Things to keep in mind
+
+- **Placements are often imprecise.** Around non-reference peaks, many CHM13 peaks don't transfer to the assembly (centromeres, segmental duplications, other divergent regions). The previous peak is then only the lower edge of a wide window. In HPRC, a peak with CHM13 peaks on both sides typically has about 120 CHM13 peaks between its two bounds (median about 1.4 Mb); only about a quarter are placed between two adjacent CHM13 peaks. `called_peaks_between` shows this per peak.
+- **Most peaks can't be checked.** The majority of non-reference peaks are in no assembly other than the one they were called on.
+- **Order on the contig is by start.** If a non-reference peak overlaps a CHM13 peak on the contig, which comes first is decided by their starts alone.
+- **Contig direction is the whole contig's** in case B, so a peak at the end of a locally inverted stretch can be placed on the wrong side of its anchor.
+- **`AT_START` and `AT_END` depend on what transferred to the assembly.** A CHM13 peak that transferred to an unexpected contig of the assembly still counts when deciding whether the anchor is the assembly's first or last peak on the chromosome.
+
+## HPRC run (All_HPRC_261102, 78 assemblies)
+
+| Non-reference peaks | Peaks |
+|---|---:|
+| All | 55,923 |
+| Placed between two CHM13 peaks (case A) | 24,177 |
+| Placed at a contig end beside a CHM13 peak (case B) | 4,891 |
+| `AT_START` | 6,930 |
+| `AT_END` | 348 |
+| `AMB` | 19,577 |
+
+| Check against other assemblies | Peaks |
+|---|---:|
+| Not checked (no other assembly) | 30,542 |
+| No conflict | 4,790 |
+| Minor conflict | 694 |
+| Major conflict | 320 |
+| Likely copy of a CHM13 peak, 10% overlap | 571 |
+| Likely copy of a CHM13 peak, 50% overlap | 296 |
