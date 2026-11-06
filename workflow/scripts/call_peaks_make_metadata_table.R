@@ -25,6 +25,16 @@ id_chr_w_hash = function(a){
   sub("^([^#]*)#([^#]*).*$", "\\1#\\2#", a)
 }
 
+## the input-file asm a contig belongs to: its "#" prefix, or for assemblies without one
+## (e.g. HG002's "chr10_MATERNAL") the subtag the name contains. NA if none matches
+contig_asm = function(chr, asms){
+  out = ifelse(grepl("#", chr), id_chr_w_hash(chr), NA_character_)
+  for(a in asms[!grepl("#", asms)]){
+    out[is.na(out) & grepl(a, chr, fixed = TRUE)] = a
+  }
+  out
+}
+
 ## one number per (a, b) pair, so large tables can be matched without pasting strings
 ## together. a and b are indices from match(); the pair is NA if either is NA
 pair_key = function(a, b, n_b){
@@ -295,22 +305,61 @@ if(nrow(conflicts) > 0){
   print(previous_peaks[consensus_peak_id %in% conflicts$consensus_peak_id])
   stop(nrow(conflicts), " consensus peaks have different chr/previous_peak values in different files")
 }
-fwrite(previous_peaks, paste0(output_dir, prefix, "_previous_peaks_nonRef_chrs.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t")
+fwrite(previous_peaks, paste0(output_dir, prefix, "_previous_peaks_nonRef_chrs.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
 
 progress("summarizing each consensus peak")
 ## one row per consensus peak; hg38 info is the same in every row of a peak
 peak_summary = updated_tbl[, .(cons_chr = cons_chr[1],
+                               cons_start = cons_start[1],
+                               cons_end = cons_end[1],
+                               hg38_chr = hg38_chr[1],
+                               hg38_start = hg38_start[1],
+                               hg38_end = hg38_end[1],
                                exists_in_hg38 = any(exists_in_hg38),
                                num_asms_transferred_to = uniqueN(asm[!is.na(asm_chr) & !is.na(asm)])),
                            by = consensus_peak_id]
 peak_summary[, exists_in_CHM13 := cons_chr %in% ref_chrs]
 ## non-reference peaks were called on an assembly in the graph, e.g. SMHT004#1#haplotype1-0000001 -> SMHT004_1
+## and chr10_MATERNAL -> HG002_1
 peak_summary[, consensus_peak_asm := ifelse(exists_in_CHM13, "CHM13",
-                                            sample_prefix_file$graph_asm[match(id_chr_w_hash(cons_chr), sample_prefix_file$asm)])]
+                                            sample_prefix_file$graph_asm[match(contig_asm(cons_chr, sample_prefix_file$asm), sample_prefix_file$asm)])]
 m = match(peak_summary$consensus_peak_id, previous_peaks$consensus_peak_id)
 peak_summary[, chr := ifelse(exists_in_CHM13, cons_chr, previous_peaks$chr[m])]
 peak_summary[, previous_peak_for_nonRef := ifelse(exists_in_CHM13, NA_character_, previous_peaks$previous_peak[m])]
-peak_summary[, cons_chr := NULL]
-setcolorder(peak_summary, c("consensus_peak_id", "consensus_peak_asm", "chr", "exists_in_CHM13", "exists_in_hg38", "num_asms_transferred_to", "previous_peak_for_nonRef"))
+## a reference peak's CHM13 coordinates are its own; non-reference peaks don't move to CHM13
+peak_summary[, `:=`(CHM13_chr = fifelse(exists_in_CHM13, cons_chr, NA_character_),
+                    CHM13_start = fifelse(exists_in_CHM13, cons_start, NA),
+                    CHM13_end = fifelse(exists_in_CHM13, cons_end, NA))]
+
+progress("ordering peaks along each chromosome")
+## chr_slot: CHM13 peak k on a chromosome has slot 2k, and the non-reference peaks between CHM13 peaks
+## k and k+1 share slot 2k+1 (AT_START is 1, AT_END the slot after the last CHM13 peak).
+## chr_order numbers every peak 1..X along its chromosome. Within a shared slot, peaks are ordered by
+## assembly, contig and position along the contig (reversed where the contig runs against CHM13), so
+## only the order of peaks from the same contig is real. AMB peaks have no chromosome, so neither column
+ref_rank = peak_summary[exists_in_CHM13 == TRUE, .(consensus_peak_id, chr, CHM13_start, CHM13_end)]
+setorder(ref_rank, chr, CHM13_start, CHM13_end)
+ref_rank[, rank := seq_len(.N), by = chr]
+n_ref = ref_rank[, .N, by = chr]
+peak_summary[, chr_slot := NA_integer_]
+peak_summary[exists_in_CHM13 == TRUE, chr_slot := 2L * ref_rank$rank[match(consensus_peak_id, ref_rank$consensus_peak_id)]]
+peak_summary[exists_in_CHM13 == FALSE, chr_slot := 2L * ref_rank$rank[match(previous_peak_for_nonRef, ref_rank$consensus_peak_id)] + 1L]
+peak_summary[previous_peak_for_nonRef == "AT_START", chr_slot := 1L]
+peak_summary[previous_peak_for_nonRef == "AT_END", chr_slot := 2L * n_ref$N[match(chr, n_ref$chr)] + 1L]
+unslotted = peak_summary[is.na(chr_slot) & !is.na(chr) & chr != "AMB"]
+if(nrow(unslotted) > 0){
+  print(head(unslotted))
+  stop(nrow(unslotted), " peaks with a chromosome could not be ordered")
+}
+peak_summary[, along_contig := fifelse(!exists_in_CHM13 & previous_peaks$orientation[m] %in% "R", -cons_start, cons_start)]
+ordered = peak_summary[!is.na(chr_slot), .(consensus_peak_id, chr, chr_slot, consensus_peak_asm, cons_chr, along_contig)]
+setorder(ordered, chr, chr_slot, consensus_peak_asm, cons_chr, along_contig)
+ordered[, chr_order := seq_len(.N), by = chr]
+peak_summary[, chr_order := ordered$chr_order[match(consensus_peak_id, ordered$consensus_peak_id)]]
+
+peak_summary[, c("cons_chr", "cons_start", "cons_end", "along_contig") := NULL]
+setcolorder(peak_summary, c("consensus_peak_id", "consensus_peak_asm", "chr", "exists_in_CHM13", "CHM13_chr", "CHM13_start", "CHM13_end",
+                            "exists_in_hg38", "hg38_chr", "hg38_start", "hg38_end", "num_asms_transferred_to", "previous_peak_for_nonRef",
+                            "chr_slot", "chr_order"))
 fwrite(peak_summary, paste0(output_dir, prefix, "_consensus_peak_summary.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
 progress("done")

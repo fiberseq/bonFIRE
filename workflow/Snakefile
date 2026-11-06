@@ -191,6 +191,7 @@ if GRAPH_ONLY == True:
 else:
     All_Targets = [f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv.gz",
                    f"{global_output_dir}/{sample}/{sample}_previous_peaks_nonRef_chrs.tsv",
+                   f"{global_output_dir}/{sample}/{sample}_previous_peak_checks.tsv",
                    f"{global_output_dir}/{sample}/{sample}_consensus_peak_summary.tsv",
                    f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed.gz"]
 
@@ -907,7 +908,8 @@ rule determine_previous_peak_for_nonRef_chrs:
     input:
         bed=rules.combined_CHM13_and_NonCHM13_transferred_peak_files.output.bed_combined,
         graph_prefixes_input=graph_prefixes_input,
-        ref_chroms=rules.list_chm13_chromosomes.output.chroms
+        ref_chroms=rules.list_chm13_chromosomes.output.chroms,
+        chm13_peaks=rules.call_global_peaks_on_chm13.output.chm13_peaks_5col_w_peak_id
     output:
         previous_peaks=f"{global_output_dir}/{sample}/temp_previous_peak_files/{sample}_previous_peaks_{{asm}}.tsv"
     conda:
@@ -925,7 +927,8 @@ rule determine_previous_peak_for_nonRef_chrs:
             {input.graph_prefixes_input} \
             {wildcards.asm} \
             {input.ref_chroms} \
-            {output.previous_peaks}
+            {output.previous_peaks} \
+            {input.chm13_peaks}
         """
 
 rule subset_pileup_file:
@@ -1032,6 +1035,38 @@ rule combine_all_transferred_peak_files:
         exec > {log} 2>&1
         echo "chr\tstart\tend\tcons_peak_id" > {output.combined_out}
         cat {input} >> {output.combined_out}
+        """
+
+# checks each non-reference peak's placement against every assembly it transferred to, and flags
+# peaks that look like copies of a CHM13 peak (the placement itself still comes from the assembly
+# the peak was called on)
+rule check_previous_peaks_across_assemblies:
+    input:
+        combined_transferred_peaks=rules.combine_all_transferred_peak_files.output.combined_out,
+        graph_prefixes_input=graph_prefixes_input,
+        ref_chroms=rules.list_chm13_chromosomes.output.chroms,
+        chm13_peaks=rules.call_global_peaks_on_chm13.output.chm13_peaks_5col_w_peak_id
+    output:
+        checks=f"{global_output_dir}/{sample}/{sample}_previous_peak_checks.tsv",
+        per_asm=f"{global_output_dir}/{sample}/{sample}_previous_peak_intervals_per_asm.tsv.gz"
+    conda:
+        "envs/R_env.yml"
+    threads: 4
+    resources:
+        mem_mb=mem_for(40000),  # 26 GB for HPRC (78 assemblies)
+        runtime=runtime_for(60)
+    log:
+        f"{log_dir}/check_previous_peaks_across_assemblies.log"
+    shell:
+        """
+        exec > {log} 2>&1
+        Rscript {WORKFLOW_DIR}/scripts/261105_check_previous_peaks_across_assemblies.R \
+            {input.combined_transferred_peaks} \
+            {input.graph_prefixes_input} \
+            {input.ref_chroms} \
+            {input.chm13_peaks} \
+            {global_output_dir}/{sample}/{sample} \
+            {threads}
         """
 
 rule surject_CHM13_consensus_peaks_onto_GRCh38:
