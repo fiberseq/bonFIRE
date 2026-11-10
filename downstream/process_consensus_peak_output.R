@@ -59,12 +59,15 @@ cpid_peak_in_at_least_one_sample = unique(tbl[is_peak == TRUE, consensus_peak_id
 tbl = tbl[consensus_peak_id %in% cpid_peak_in_at_least_one_sample]
 cons_peak_summary = cons_peak_summary[consensus_peak_id %in% cpid_peak_in_at_least_one_sample]
 
-### for each consensus peak id, the number of sample haplotypes (sample_ids) in which it is a peak, and the
-### number it could be transferred to
-num_peaks_per_cons_peak_id = tbl[is_peak == TRUE, .(num_sample_haps_with_peak = uniqueN(sample_id)), by = consensus_peak_id]
-num_asm_per_cons_peak_id = tbl[!is.na(asm_chr), .(num_sample_haps_with_genomic_location = uniqueN(sample_id)), by = consensus_peak_id]
+### for each consensus peak id, the number of sample haplotypes (sample_ids) and of assembly haplotypes (asm) in
+### which it is a peak, and the number of assembly haplotypes it could be transferred to. The first two differ
+### only when an assembly has more than one run
+num_peaks_per_cons_peak_id_by_sample_hap = tbl[is_peak == TRUE, .(num_sample_haps_with_peak = uniqueN(sample_id)), by = consensus_peak_id]
+num_peaks_per_cons_peak_id_by_asm = tbl[is_peak == TRUE, .(num_asms_with_peak = uniqueN(asm)), by = consensus_peak_id]
+num_asm_per_cons_peak_id = tbl[!is.na(asm_chr), .(num_asms_with_genomic_location = uniqueN(asm)), by = consensus_peak_id]
 
-cons_peak_summary = merge(cons_peak_summary, num_peaks_per_cons_peak_id, by = "consensus_peak_id", all.x = TRUE)
+cons_peak_summary = merge(cons_peak_summary, num_peaks_per_cons_peak_id_by_sample_hap, by = "consensus_peak_id", all.x = TRUE)
+cons_peak_summary = merge(cons_peak_summary, num_peaks_per_cons_peak_id_by_asm, by = "consensus_peak_id", all.x = TRUE)
 cons_peak_summary = merge(cons_peak_summary, num_asm_per_cons_peak_id, by = "consensus_peak_id", all.x = TRUE)
 
 cons_peak_summary[, autosomal := !(chr %in% NON_AUTOSOMAL)]

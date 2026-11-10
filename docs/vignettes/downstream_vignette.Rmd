@@ -80,16 +80,21 @@ cons_peak_summary = cons_peak_summary[consensus_peak_id %in% peaks_called]
 tbl[, .(consensus_peaks = .N, called_peaks = sum(is_peak)), by = sample_id]
 ```
 
-For each consensus peak, the number of sample haplotypes it is a peak in, and the number it could be
-transferred to, are added to the summary. Peaks on chrX, chrY, chrM and those without a chromosome
-(`AMB`) are marked as not autosomal: the next section leaves them out.
+For each consensus peak, three counts are added to the summary: the number of sample haplotypes
+(`sample_id`) it is a peak in, the number of assembly haplotypes (`asm`) it is a peak in, and the number
+of assembly haplotypes it could be transferred to. The first two differ only when an assembly has more
+than one run (e.g. several tissues from one donor). Peaks on chrX, chrY, chrM and those without a
+chromosome (`AMB`) are marked as not autosomal: the next section leaves them out.
 
 ```{r summary}
 cons_peak_summary = merge(cons_peak_summary,
                           tbl[is_peak == TRUE, .(num_sample_haps_with_peak = uniqueN(sample_id)), by = consensus_peak_id],
                           by = "consensus_peak_id", all.x = TRUE)
 cons_peak_summary = merge(cons_peak_summary,
-                          tbl[!is.na(asm_chr), .(num_sample_haps_with_genomic_location = uniqueN(sample_id)), by = consensus_peak_id],
+                          tbl[is_peak == TRUE, .(num_asms_with_peak = uniqueN(asm)), by = consensus_peak_id],
+                          by = "consensus_peak_id", all.x = TRUE)
+cons_peak_summary = merge(cons_peak_summary,
+                          tbl[!is.na(asm_chr), .(num_asms_with_genomic_location = uniqueN(asm)), by = consensus_peak_id],
                           by = "consensus_peak_id", all.x = TRUE)
 cons_peak_summary[, autosomal := !(chr %in% c("chrX", "chrY", "chrM", "AMB"))]
 

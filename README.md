@@ -304,7 +304,7 @@ Rscript downstream/process_consensus_peak_output.R input_dir output_dir prefix [
 
 Outputs, in output_dir:
 
-- **[prefix]_consensus_peak_summary_processed.tsv**: the consensus peak summary for the peaks kept, with num_sample_haps_with_peak, num_sample_haps_with_genomic_location (sample haplotypes the peak could be transferred to) and autosomal
+- **[prefix]_consensus_peak_summary_processed.tsv**: the consensus peak summary for the peaks kept, with num_sample_haps_with_peak (sample haplotypes it is a peak in), num_asms_with_peak (assembly haplotypes it is a peak in; differs from the previous column only when an assembly has more than one run), num_asms_with_genomic_location (assembly haplotypes it could be transferred to) and autosomal
 - **[prefix]_hap_selectivity_info.tsv**: one row per autosomal peak and run, with the two haplotypes' coverage, fire_coverage and fire_cov_OV_cov (_1 and _2), nonfire_1/2, abs_hap_diff, tested, fisher_p, fisher_fdr (NA if not tested), hap_selective and seqs_match (NA without a sequence on both haplotypes)
 
 Because the FDR is over every run together, a run with much higher coverage has more power and can account for many of the calls.
