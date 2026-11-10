@@ -1,0 +1,220 @@
+---
+title: "bonFIRE: calling peaks, haplotype-selective peaks, and plotting regions"
+output:
+  html_document:
+    toc: true
+params:
+  input_dir: "/path/to/output_dir/prefix/"
+  prefix: "prefix"
+  exclude_runs: ""
+  min_fire_cov: 4
+  min_frac_acc: 0.2
+  diff_threshold: 0.25
+  min_hap_cov: 10
+  fdr_cutoff: 0.05
+---
+
+This vignette walks through the steps of `downstream/process_consensus_peak_output.R`, which starts
+from the outputs of the bonFIRE pipeline in `<output_dir>/<prefix>/`:
+
+- `<prefix>_final_tbl_w_metadata.tsv.gz`: one row per consensus peak per sample haplotype
+- `<prefix>_consensus_peak_summary.tsv`: one row per consensus peak
+- `<prefix>_transferred_cons_peaks_native_sequences_from_main_output.bed.gz`: the sequence of each
+  consensus peak on each assembly
+
+(see the README for their columns). The script does the same steps without the explanations; for a
+large run, use it as a batch job, since the table can need tens of GB of memory (about 40 GB for 78 HPRC
+assemblies). The last section shows how peaks are ordered along a chromosome, which is what
+`downstream/plot_consensus_peaks_by_interval.R` uses to plot a region.
+
+Every cutoff is a parameter. Change them in the header above, or when rendering:
+
+```r
+rmarkdown::render("docs/vignettes/downstream_vignette.Rmd",
+                  params = list(input_dir = "/path/to/output_dir/my_run/", prefix = "my_run",
+                                exclude_runs = "HG002_PS01015_PacBio", fdr_cutoff = 0.01))
+```
+
+```{r setup, message = FALSE}
+library(data.table)
+library(Biostrings)
+library(ggplot2)
+
+input_dir = sub("/*$", "/", params$input_dir)
+tbl = fread(paste0(input_dir, params$prefix, "_final_tbl_w_metadata.tsv.gz"))
+cons_peak_summary = fread(paste0(input_dir, params$prefix, "_consensus_peak_summary.tsv"))
+dim(tbl)
+```
+
+# 1. Leaving out runs
+
+`sample_id` is the run (`sample_name` from the input file) followed by the assembly haplotype, e.g.
+`HG00438_PS00991_ONT_HG00438_1`. To leave runs out of the analysis (e.g. a second run on the same
+assembly), list them in `exclude_runs`, comma-separated: any `sample_id` containing one of them is
+removed. Peaks only called in those runs are then dropped in the next step.
+
+```{r exclude}
+exclude_runs = if(params$exclude_runs != "") strsplit(params$exclude_runs, ",")[[1]] else character()
+all_ids = unique(tbl$sample_id)
+excluded = all_ids[sapply(all_ids, function(x) any(sapply(exclude_runs, grepl, x = x, fixed = TRUE)))]
+excluded
+tbl = tbl[!(sample_id %in% excluded)]
+```
+
+# 2. Calling peaks
+
+A consensus peak is a peak in a sample haplotype if it has at least `min_fire_cov`
+(`r params$min_fire_cov`) FIRE reads and at least `min_frac_acc` (`r params$min_frac_acc`) of its
+reads are FIRE reads (`fire_cov_OV_cov`). Where the peak didn't transfer to the assembly, the coverage
+columns are NA, and it isn't a peak.
+
+```{r call-peaks}
+tbl[, is_peak := fcoalesce(fire_coverage >= params$min_fire_cov & fire_cov_OV_cov >= params$min_frac_acc, FALSE)]
+
+## consensus peaks that are a peak in no sample haplotype are dropped
+peaks_called = unique(tbl[is_peak == TRUE, consensus_peak_id])
+tbl = tbl[consensus_peak_id %in% peaks_called]
+cons_peak_summary = cons_peak_summary[consensus_peak_id %in% peaks_called]
+
+## peaks called in each sample haplotype
+tbl[, .(consensus_peaks = .N, called_peaks = sum(is_peak)), by = sample_id]
+```
+
+For each consensus peak, the number of sample haplotypes it is a peak in, and the number it could be
+transferred to, are added to the summary. Peaks on chrX, chrY, chrM and those without a chromosome
+(`AMB`) are marked as not autosomal: the next section leaves them out.
+
+```{r summary}
+cons_peak_summary = merge(cons_peak_summary,
+                          tbl[is_peak == TRUE, .(num_sample_haps_with_peak = uniqueN(sample_id)), by = consensus_peak_id],
+                          by = "consensus_peak_id", all.x = TRUE)
+cons_peak_summary = merge(cons_peak_summary,
+                          tbl[!is.na(asm_chr), .(num_sample_haps_with_genomic_location = uniqueN(sample_id)), by = consensus_peak_id],
+                          by = "consensus_peak_id", all.x = TRUE)
+cons_peak_summary[, autosomal := !(chr %in% c("chrX", "chrY", "chrM", "AMB"))]
+
+cons_peak_summary[, .N, by = .(consensus_peak_asm = fifelse(consensus_peak_asm == "CHM13", "CHM13", "other assembly"), autosomal)]
+```
+
+# 3. Haplotype-selective peaks
+
+Each run has one `sample_id` per haplotype. The last field is the haplotype, and the rest is the run;
+the two haplotypes are put side by side (`coverage_1`, `coverage_2`, ...).
+
+```{r haplotypes}
+tbl = tbl[consensus_peak_id %in% cons_peak_summary[autosomal == TRUE, consensus_peak_id]]
+tbl[, haplotype := sub("^.*_", "", sample_id)]
+tbl[, sample := sub("_[^_]*$", "", sample_id)]
+
+tbl_haplotype = dcast(tbl, consensus_peak_id + sample ~ haplotype,
+                      value.var = c("coverage", "fire_coverage", "fire_cov_OV_cov"), sep = "_")
+tbl_haplotype[, nonfire_1 := coverage_1 - fire_coverage_1]
+tbl_haplotype[, nonfire_2 := coverage_2 - fire_coverage_2]
+tbl_haplotype[, abs_hap_diff := abs(fire_cov_OV_cov_1 - fire_cov_OV_cov_2)]
+```
+
+A peak can only be called haplotype-selective in a run if both haplotypes have at least
+`min_hap_cov` (`r params$min_hap_cov`) reads and their fractions of FIRE reads differ by at least
+`diff_threshold` (`r params$diff_threshold`). Only these pairs are `tested`: a Fisher's exact test
+compares FIRE and non-FIRE reads between the haplotypes, and the p values are corrected
+(Benjamini–Hochberg) across the tested pairs. Pairs with an FDR of at most `fdr_cutoff`
+(`r params$fdr_cutoff`) are haplotype-selective.
+
+Testing only the pairs that could be called keeps the correction from being diluted by millions of
+pairs with too little coverage or too small a difference. The FDR is over all runs together, so runs
+with much higher coverage have more power and can account for most calls; correct within each run
+instead (`p.adjust(fisher_p, method = "BH"), by = sample`) if you want calls comparable between runs.
+
+```{r hap-test}
+tbl_haplotype[, tested := fcoalesce(coverage_1 >= params$min_hap_cov & coverage_2 >= params$min_hap_cov &
+                                      abs_hap_diff >= params$diff_threshold, FALSE)]
+tbl_haplotype[, fisher_p := NA_real_]
+tbl_haplotype[tested == TRUE, fisher_p := mapply(
+  function(a, b, c, d) fisher.test(matrix(c(a, b, c, d), nrow = 2))$p.value,
+  fire_coverage_1, nonfire_1, fire_coverage_2, nonfire_2)]
+tbl_haplotype[, fisher_fdr := NA_real_]
+tbl_haplotype[tested == TRUE, fisher_fdr := p.adjust(fisher_p, method = "BH")]
+tbl_haplotype[, hap_selective := tested & fcoalesce(fisher_fdr <= params$fdr_cutoff, FALSE)]
+
+tbl_haplotype[, .(pairs = .N, tested = sum(tested), hap_selective = sum(hap_selective))]
+## haplotype-selective calls per run
+tbl_haplotype[hap_selective == TRUE, .N, by = sample][order(-N)]
+```
+
+```{r hap-plot, fig.width = 6, fig.height = 5}
+ggplot(tbl_haplotype[tested == TRUE],
+       aes(x = fire_cov_OV_cov_1, y = fire_cov_OV_cov_2, colour = hap_selective)) +
+  geom_point(alpha = 0.6) +
+  geom_abline(linetype = "dashed") +
+  scale_colour_manual(values = c(`FALSE` = "grey70", `TRUE` = "purple")) +
+  labs(x = "fraction accessible, haplotype 1", y = "fraction accessible, haplotype 2",
+       colour = "haplotype-selective", title = "tested pairs") +
+  theme_bw()
+```
+
+# 4. Does the underlying sequence match between haplotypes?
+
+A haplotype-selective peak whose sequence differs between the haplotypes may be driven by the sequence
+change itself. Sequences are in their own file (it has no header), one row per consensus peak on each
+assembly, and are joined to the table by the peak's coordinates on that assembly. An assembly contig
+can run in either direction relative to the other haplotype's, so the two sequences match if they are
+identical **or** one is the reverse complement of the other.
+
+```{r sequences}
+seqs = fread(paste0(input_dir, params$prefix, "_transferred_cons_peaks_native_sequences_from_main_output.bed.gz"),
+             header = FALSE, col.names = c("asm_chr", "asm_start", "asm_end", "consensus_peak_id", "seq"))
+seq_by_hap = merge(tbl[, .(consensus_peak_id, sample, haplotype, asm_chr, asm_start, asm_end)], seqs,
+                   by = c("asm_chr", "asm_start", "asm_end", "consensus_peak_id"))
+seq_by_hap = dcast(seq_by_hap, consensus_peak_id + sample ~ haplotype, value.var = "seq", sep = "_")
+setnames(seq_by_hap, c("1", "2"), c("seq_1", "seq_2"))
+seq_by_hap = seq_by_hap[!is.na(seq_1) & !is.na(seq_2)]
+seq_by_hap[, seqs_match := seq_1 == seq_2 | seq_1 == as.character(reverseComplement(DNAStringSet(seq_2)))]
+
+## seqs_match is NA where the peak doesn't have a sequence on both haplotypes
+tbl_haplotype = merge(tbl_haplotype, seq_by_hap[, .(consensus_peak_id, sample, seqs_match)],
+                      by = c("consensus_peak_id", "sample"), all.x = TRUE)
+tbl_haplotype[, .N, by = .(hap_selective, seqs_match)][order(-hap_selective, seqs_match)]
+```
+
+To save the results (the script writes these two files):
+
+```{r save, eval = FALSE}
+fwrite(cons_peak_summary, paste0(params$prefix, "_consensus_peak_summary_processed.tsv"), sep = "\t", na = "NA", quote = FALSE)
+fwrite(tbl_haplotype, paste0(params$prefix, "_hap_selectivity_info.tsv"), sep = "\t", na = "NA", quote = FALSE)
+```
+
+# 5. Ordering peaks along a chromosome for plotting
+
+Every consensus peak with a chromosome has a `chr_order` in the summary: its position along that
+chromosome, 1 to the number of peaks on it, with no two peaks sharing a number. CHM13 peaks are in
+CHM13 order, and each peak called on another assembly sits between the CHM13 peaks it lies between
+on its contig (see [previous_peak_placement.md](../previous_peak_placement.md)). Peaks before the
+chromosome's first CHM13 peak have `at_start_of_chr` TRUE, and peaks after its last have
+`at_end_of_chr` TRUE. `AMB` peaks have no chromosome, so no order.
+
+To get the peaks of a region, take the `chr_order` of the first and last CHM13 peak in it, and
+everything in between. The table and the summary can be subset beforehand (e.g. to some samples),
+since only the numbers matter. Here, the region around the first CHM13 peak that has a non-reference
+peak after it:
+
+```{r order}
+nonref = cons_peak_summary[exists_in_CHM13 == FALSE & !is.na(chr_order)][order(chr, chr_order)]
+example = nonref[1]
+region = cons_peak_summary[chr == example$chr & chr_order >= example$chr_order - 3 & chr_order <= example$chr_order + 3]
+region[order(chr_order), .(consensus_peak_id, consensus_peak_asm, CHM13_start, chr_slot, chr_order)]
+```
+
+`downstream/plot_consensus_peaks_by_interval.R` does this for each interval in a bed file (CHM13
+coordinates) and plots `fire_cov_OV_cov` for every sample haplotype and peak, in `chr_order` order,
+once with samples in name order and once clustered:
+
+```bash
+Rscript downstream/plot_consensus_peaks_by_interval.R \
+  plots/ my_run \
+  /path/to/output_dir/my_run/my_run_final_tbl_w_metadata.tsv.gz \
+  /path/to/output_dir/my_run/my_run_consensus_peak_summary.tsv \
+  intervals.bed 6 FALSE 0.1
+```
+
+The bed file has five tab-separated columns and no header: chr, start, end, name, and a TSS position to
+outline (or NA). See the top of the script for the other arguments.

@@ -160,6 +160,8 @@ All outputs are written to **[output_dir]/[prefix]/**, and file names start with
 | **[prefix]_final_tbl_w_metadata.tsv.gz** | The main table: one row per consensus peak per sample haplotype (described below). Chromatin accessibility data is found here. |
 | **[prefix]_consensus_peak_summary.tsv** | One row per consensus_peak_id along with consensus peak region-specific metadata, including which reference chromosome it is associated with, where non-reference peaks lie relative to reference, and whether (and where) the region transfers on CHM13 and GRCh38. (described below). |
 | **[prefix]_previous_peaks_nonRef_chrs.tsv** | For consensus peaks that couldn't be placed on CHM13: the CHM13 chromosome and peak they sit next to (described below). |
+| **[prefix]_previous_peak_checks.tsv** | For the same peaks: whether the other assemblies each was transferred to agree with its placement, and whether it looks like a copy of a CHM13 peak (described below). |
+| **[prefix]_previous_peak_intervals_per_asm.tsv.gz** | The rows behind the checks: one per non-reference peak and assembly it was transferred to. |
 | **[prefix]_transferred_cons_peaks_native_sequences_from_main_output.bed.gz** | The sequence of each consensus peak on each assembly (described below). |
 | **logs/** | One log per rule (and per sample or assembly where a rule runs for each). If a job fails, its log is printed at the end of the run. |
 
@@ -230,23 +232,53 @@ One row per consensus peak.
 
 **exists_in_CHM13**: TRUE if the consensus peak was called on CHM13
 
+**CHM13_chr**, **CHM13_start**, **CHM13_end**: its CHM13 coordinates (NA if not called on CHM13)
+
 **exists_in_hg38**: TRUE if the consensus peak could be transferred to GRCh38
 
-**num_asms_transferred_to**: number of assembly haplotypes the consensus peak could be transferred to
+**hg38_chr**, **hg38_start**, **hg38_end**: its GRCh38 coordinates (NA if it couldn't be transferred)
 
-**previous_peak_for_nonRef**: for peaks not on CHM13, the previous_peak from [prefix]_previous_peaks_nonRef_chrs.tsv; NA for CHM13 peaks
+\***chr_order**: the peak's position along its chromosome, numbered 1 to the number of peaks on that chromosome, with no two peaks sharing a number. CHM13 peaks are in CHM13 order, and each non-reference peak sits between the CHM13 peaks it lies between on its contig (from [prefix]_previous_peaks_nonRef_chrs.tsv). Non-reference peaks in the same gap are ordered by assembly, then contig, then position along the contig (reversed where the contig runs opposite to CHM13). To get every peak in a region, take the chr_order of the first and last CHM13 peak in it, and everything in between. NA for AMB peaks.
+
+**chr_slot**: the gap chr_order is built from. The k-th CHM13 peak on the chromosome has chr_slot 2k; non-reference peaks after it have 2k+1, those before the first CHM13 peak have 1. Non-reference peaks in the same gap share a chr_slot, and odd numbers with no peaks are skipped by chr_order, so chr_slot is usually larger than chr_order. NA for AMB peaks.
+
+**at_start_of_chr**, **at_end_of_chr**: TRUE for non-reference peaks placed before the chromosome's first CHM13 peak, or after its last (previous_peak AT_START or AT_END below). NA for AMB peaks.
 
 ### [prefix]_previous_peaks_nonRef_chrs.tsv
 
-Consensus peaks that couldn't be transferred to CHM13 were called on another assembly. To place them relative to CHM13 (e.g. for plotting a region), this file gives, for each one, the CHM13 chromosome it sits on and the CHM13 peak just before it. These are worked out from the order of peaks along each assembly contig.
+Consensus peaks that couldn't be transferred to CHM13 were called on another assembly. To place them relative to CHM13 (e.g. for plotting a region), this file gives, for each one, the CHM13 chromosome it sits on and the CHM13 peak just before it. These are worked out from the order of peaks along the contig of the assembly it was called on. [docs/previous_peak_placement.md](docs/previous_peak_placement.md) describes the steps in detail.
 
 **consensus_peak_id**: a consensus peak called on an assembly (not CHM13)
 
 **chr**: the CHM13 chromosome it sits on, from the CHM13 peaks on its contig. AMB if it can't be determined (e.g. the contig has no CHM13 peaks, or the CHM13 peaks around it are on different chromosomes)
 
-**previous_peak**: the CHM13 consensus peak just before it on that chromosome. AT_START if it comes before the chromosome's first CHM13 peak, and AMB if it can't be placed (including when the CHM13 peaks on either side have the same start, so the direction can't be told). For a peak past the last CHM13 peak on its contig, the position is only known relative to that nearest CHM13 peak, so it is placed right beside it.
+**previous_peak**: the CHM13 consensus peak just before it on that chromosome. AT_START if it comes before the chromosome's first CHM13 peak, AT_END if after its last, and AMB if it can't be placed (including when the CHM13 peaks on either side have the same start, so the direction can't be told). A peak at the end of its contig, past the contig's last CHM13 peak, is only known to lie beyond that CHM13 peak (its anchor), so it is placed right beside it; if nothing more on that side of the chromosome was transferred to this assembly, it could be anywhere up to the chromosome's end, and is AT_START or AT_END.
 
 **orientation**: F if the contig runs in the same direction as CHM13 at this peak, R if reversed (NA if unknown). Several assembly peaks can share a previous_peak; along CHM13 they run in contig order if F, and in reverse contig order if R.
+
+**previous_peak_full_list**: as previous_peak, but contig-end peaks are always placed beside their anchor, even at the chromosome edges (no AT_END). Use it for calculations that need a CHM13 peak.
+
+**contig_position**: contig_start or contig_end for peaks at a contig end (placed from one side only); NA otherwise
+
+**open_side**: for those peaks, the side not known on CHM13: previous_unknown or next_unknown
+
+**contig_anchor_peak**: for those peaks, the CHM13 peak the placement is based on
+
+### [prefix]_previous_peak_checks.tsv
+
+The placement above uses only the assembly the peak was called on. This file checks it against every other assembly the peak was transferred to, which places it between its own CHM13 neighbours there, and flags peaks that look like copies of a CHM13 peak (e.g. a duplication). One row per non-reference peak; the main columns are below, and all are described in [docs/previous_peak_placement.md](docs/previous_peak_placement.md).
+
+**n_asms_present**: assemblies the peak is in, including the one it was called on
+
+**called_after_peak**, **called_before_peak**, **called_peaks_between**: the CHM13 peaks it lies between on the called assembly, and the number of CHM13 peaks between them (how precisely it is placed)
+
+**n_asms_checked**, **n_asms_disagree**: other assemblies that place it on the same chromosome, and how many of them put it somewhere else
+
+**conflict_level**: none; minor (the assemblies only disagree about which side of one CHM13 peak it is on); major; not_checked (no other assembly to compare with); not_placed
+
+**all_asms_agree**, **all_asms_after_peak**, **all_asms_before_peak**: whether every assembly's placement overlaps, and if so, the narrowest placement they allow together
+
+**likely_copy_of_CHM13_peak_10pct**, **likely_copy_of_CHM13_peak_50pct**: the CHM13 peak it overlaps (by at least 10% or 50% of each one's length) in at least half the assemblies it is in, if any
 
 ### [prefix]_transferred_cons_peaks_native_sequences_from_main_output.bed.gz
 
@@ -254,11 +286,42 @@ The underlying sequence of each consensus peak region on each assembly. bgzipped
 
 This can be useful in order to determine whether differences in accessibility are mediated by sequence changes. Keep in mind that the way assemblies are constructed may result in unsynchronized sequence complementarity. Thus, one must consider the reverse complement of sequences in order to compare between them.
 
-## Vignettes
+## Downstream analysis
 
-[docs/vignettes/consensus_peak_vignette.Rmd](docs/vignettes/consensus_peak_vignette.Rmd) shows how to call peaks from the final table (with adjustable coverage and accessibility cutoffs), how to tell whether a peak's sequence matches between haplotypes (including reverse complements), and how to call haplotype-selective peaks. Render it with your own outputs:
+The scripts in **downstream/** start from the pipeline outputs. They need R with data.table, Biostrings and ggplot2 (plus dplyr and tidyr for plotting); the pipeline's R environment (workflow/envs/R_env.yml) has them. For large runs, submit them as jobs: the main table can need tens of GB of memory.
+
+### Calling peaks and haplotype-selective peaks
+
+```bash
+Rscript downstream/process_consensus_peak_output.R input_dir output_dir prefix [exclude_runs]
+```
+
+**input_dir** is the pipeline's [output_dir]/[prefix]/. **exclude_runs** is optional: a comma-separated list, and any sample_id containing one of them is left out (e.g. a second run on the same assembly). The cutoffs are set at the top of the script:
+
+- A consensus peak is a **peak** in a sample haplotype if fire_coverage ≥ 4 and fire_cov_OV_cov ≥ 0.2. Consensus peaks that are a peak in no sample haplotype are dropped.
+- A peak is **tested** for haplotype selectivity in a run if both haplotypes have coverage ≥ 10 and their fire_cov_OV_cov differ by ≥ 0.25. Tested peaks are compared with a Fisher's exact test (FIRE vs. non-FIRE reads on each haplotype), corrected (Benjamini–Hochberg) across all tested pairs, and are **haplotype-selective** at FDR ≤ 0.05. Only autosomal peaks are tested (not chrX, chrY, chrM or AMB).
+- **seqs_match** is TRUE if the peak's sequence is the same on both haplotypes (or the reverse complement), so a haplotype-selective peak may be driven by the sequence change if FALSE.
+
+Outputs, in output_dir:
+
+- **[prefix]_consensus_peak_summary_processed.tsv**: the consensus peak summary for the peaks kept, with num_sample_haps_with_peak, num_sample_haps_with_genomic_location (sample haplotypes the peak could be transferred to) and autosomal
+- **[prefix]_hap_selectivity_info.tsv**: one row per autosomal peak and run, with the two haplotypes' coverage, fire_coverage and fire_cov_OV_cov (_1 and _2), nonfire_1/2, abs_hap_diff, tested, fisher_p, fisher_fdr (NA if not tested), hap_selective and seqs_match (NA without a sequence on both haplotypes)
+
+Because the FDR is over every run together, a run with much higher coverage has more power and can account for many of the calls.
+
+### Plotting regions
+
+```bash
+Rscript downstream/plot_consensus_peaks_by_interval.R output_dir prefix final_tbl summary intervals.bed coverage_cutoff remove_single_sample_peaks [min_frac_actuation]
+```
+
+For each interval in a bed file (CHM13 coordinates; columns chr, start, end, name, TSS or NA, no header), this plots fire_cov_OV_cov for every sample haplotype and consensus peak from the first CHM13 peak in the interval to the last, with the non-reference peaks between them, in chr_order. It makes two plots per interval, one with samples in name order and one with samples clustered by their accessibility and missing peaks (_clustered.png), and writes the plotted rows as a table. **final_tbl** and **summary** can be subsets of [prefix]_final_tbl_w_metadata.tsv.gz and the consensus peak summary (e.g. to some samples). See the top of the script for the other arguments.
+
+### Vignette
+
+[docs/vignettes/downstream_vignette.Rmd](docs/vignettes/downstream_vignette.Rmd) walks through the steps of process_consensus_peak_output.R with explanations, with each cutoff as a parameter, and shows how chr_order is used to pull out a region. Render it with your own outputs:
 
 ```r
-rmarkdown::render("docs/vignettes/consensus_peak_vignette.Rmd",
+rmarkdown::render("docs/vignettes/downstream_vignette.Rmd",
                   params = list(input_dir = "/path/to/output_dir/prefix/", prefix = "prefix"))
 ```
