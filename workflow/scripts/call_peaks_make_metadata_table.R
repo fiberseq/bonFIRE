@@ -315,8 +315,7 @@ peak_summary = updated_tbl[, .(cons_chr = cons_chr[1],
                                hg38_chr = hg38_chr[1],
                                hg38_start = hg38_start[1],
                                hg38_end = hg38_end[1],
-                               exists_in_hg38 = any(exists_in_hg38),
-                               num_asms_transferred_to = uniqueN(asm[!is.na(asm_chr) & !is.na(asm)])),
+                               exists_in_hg38 = any(exists_in_hg38)),
                            by = consensus_peak_id]
 peak_summary[, exists_in_CHM13 := cons_chr %in% ref_chrs]
 ## non-reference peaks were called on an assembly in the graph, e.g. SMHT004#1#haplotype1-0000001 -> SMHT004_1
@@ -325,7 +324,8 @@ peak_summary[, consensus_peak_asm := ifelse(exists_in_CHM13, "CHM13",
                                             sample_prefix_file$graph_asm[match(contig_asm(cons_chr, sample_prefix_file$asm), sample_prefix_file$asm)])]
 m = match(peak_summary$consensus_peak_id, previous_peaks$consensus_peak_id)
 peak_summary[, chr := ifelse(exists_in_CHM13, cons_chr, previous_peaks$chr[m])]
-peak_summary[, previous_peak_for_nonRef := ifelse(exists_in_CHM13, NA_character_, previous_peaks$previous_peak[m])]
+## used for ordering below, then dropped: the order and the two at_*_of_chr columns carry it
+peak_summary[, previous_peak := ifelse(exists_in_CHM13, NA_character_, previous_peaks$previous_peak[m])]
 ## a reference peak's CHM13 coordinates are its own; non-reference peaks don't move to CHM13
 peak_summary[, `:=`(CHM13_chr = fifelse(exists_in_CHM13, cons_chr, NA_character_),
                     CHM13_start = fifelse(exists_in_CHM13, cons_start, NA),
@@ -343,9 +343,9 @@ ref_rank[, rank := seq_len(.N), by = chr]
 n_ref = ref_rank[, .N, by = chr]
 peak_summary[, chr_slot := NA_integer_]
 peak_summary[exists_in_CHM13 == TRUE, chr_slot := 2L * ref_rank$rank[match(consensus_peak_id, ref_rank$consensus_peak_id)]]
-peak_summary[exists_in_CHM13 == FALSE, chr_slot := 2L * ref_rank$rank[match(previous_peak_for_nonRef, ref_rank$consensus_peak_id)] + 1L]
-peak_summary[previous_peak_for_nonRef == "AT_START", chr_slot := 1L]
-peak_summary[previous_peak_for_nonRef == "AT_END", chr_slot := 2L * n_ref$N[match(chr, n_ref$chr)] + 1L]
+peak_summary[exists_in_CHM13 == FALSE, chr_slot := 2L * ref_rank$rank[match(previous_peak, ref_rank$consensus_peak_id)] + 1L]
+peak_summary[previous_peak == "AT_START", chr_slot := 1L]
+peak_summary[previous_peak == "AT_END", chr_slot := 2L * n_ref$N[match(chr, n_ref$chr)] + 1L]
 unslotted = peak_summary[is.na(chr_slot) & !is.na(chr) & chr != "AMB"]
 if(nrow(unslotted) > 0){
   print(head(unslotted))
@@ -356,10 +356,14 @@ ordered = peak_summary[!is.na(chr_slot), .(consensus_peak_id, chr, chr_slot, con
 setorder(ordered, chr, chr_slot, consensus_peak_asm, cons_chr, along_contig)
 ordered[, chr_order := seq_len(.N), by = chr]
 peak_summary[, chr_order := ordered$chr_order[match(consensus_peak_id, ordered$consensus_peak_id)]]
+## non-reference peaks before the assembly's first / after its last CHM13 peak on the chromosome
+## (AT_START / AT_END); NA for AMB peaks, which have no chromosome
+peak_summary[, `:=`(at_start_of_chr = fifelse(is.na(chr_slot), NA, previous_peak %in% "AT_START"),
+                    at_end_of_chr = fifelse(is.na(chr_slot), NA, previous_peak %in% "AT_END"))]
 
-peak_summary[, c("cons_chr", "cons_start", "cons_end", "along_contig") := NULL]
+peak_summary[, c("cons_chr", "cons_start", "cons_end", "along_contig", "previous_peak") := NULL]
 setcolorder(peak_summary, c("consensus_peak_id", "consensus_peak_asm", "chr", "exists_in_CHM13", "CHM13_chr", "CHM13_start", "CHM13_end",
-                            "exists_in_hg38", "hg38_chr", "hg38_start", "hg38_end", "num_asms_transferred_to", "previous_peak_for_nonRef",
-                            "chr_slot", "chr_order"))
+                            "exists_in_hg38", "hg38_chr", "hg38_start", "hg38_end",
+                            "chr_slot", "chr_order", "at_start_of_chr", "at_end_of_chr"))
 fwrite(peak_summary, paste0(output_dir, prefix, "_consensus_peak_summary.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
 progress("done")
