@@ -39,6 +39,24 @@ You can then install the `pixi` environment by running the following in this rep
 pixi install
 ```
 
+### 4. Build fibertools from GitHub
+
+> **Note (to do):** the build steps below haven't been tested yet. Build `ft` this way, check that it runs and that a pipeline run with it as `ft_path` transfers peaks as expected, then remove this note.
+
+The fibertools release on bioconda (v0.13.0) has a bug that loses many transferred peaks. It is fixed on the fibertools `main` branch ([3ba4545](https://github.com/fiberseq/fibertools-rs/commit/3ba4545)) but not yet released, so build `ft` from GitHub and give its path as `ft_path` in the config. This needs Rust (install it with [rustup](https://rustup.rs) if `cargo` isn't available):
+
+```bash
+cargo install --git https://github.com/fiberseq/fibertools-rs --locked --root /path/to/fibertools_main
+```
+
+This puts the binary at `/path/to/fibertools_main/bin/ft`; in the config:
+
+```yaml
+ft_path: /path/to/fibertools_main/bin/ft
+```
+
+The build still reports its version as 0.13.0, so the version number doesn't tell you whether you have the fix. If the build fails, see the fibertools [install instructions](https://fiberseq.github.io/fibertools/install.html). Once a fixed release is on bioconda, this step won't be needed.
+
 ## Usage
 
 To run from inside the repo:
@@ -100,7 +118,7 @@ Fields to include: <br>
 **output_dir**: directory to write to <br>
 **prefix**: run prefix <br>
 **input_file**: Described above <br>
-**ft_path:** path to the `ft` (fibertools) binary to use. If removed, the `ft` in the pipeline's environment is used. Note: in fibertools v0.13.0, peaks on fibertigs that surject onto the reverse strand are lost (they can't be extracted after `vg surject`), so most peaks end up in the "not transferred" fraction. Until that is fixed, point this at a build that works (we used v0.9.0). <br>                                                                 
+**ft_path:** path to the `ft` (fibertools) binary to use. If removed, the `ft` in the pipeline's environment is used. **Set this to a fibertools build from GitHub (see Installation, step 4)**: the fibertools v0.13.0 release on bioconda, which the pipeline's environment installs, loses peaks on fibertigs that surject onto the reverse strand, so most peaks end up in the "not transferred" fraction. <br>                                                                 
 **ft_param**: Default 1000. Peaks are 'strung together' into longer sequences to aid surjection onto the correct path. Keep as is for most cases. <br>
 **graph**: path to graph if one has already been generated. If not, remove this line, and a graph will be generated for you. A provided graph must contain every contig in the input fastas, including those Minigraph-Cactus leaves out; when the pipeline builds the graph it adds them back (graph/[prefix].full_all_chrs.gbz), so use that file rather than [prefix].full.gbz. If a contig is missing, `vg inject` fails with "alignment references path not present in graph". <br>
 **CHM13_fasta_path**: Path to CHM13 fasta <br>
