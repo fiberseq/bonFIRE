@@ -11,7 +11,8 @@
 ##   final_tbl: [prefix]_final_tbl_w_metadata.tsv.gz, or a subset of it
 ##   summary: [prefix]_consensus_peak_summary.tsv (or the processed one, or a subset); needs
 ##            consensus_peak_id, chr, CHM13_start, CHM13_end, chr_slot, chr_order and at_end_of_chr
-##   intervals.bed: tab-separated, no header: chr, start, end, name, TSS (CHM13 coordinates; TSS can be NA).
+##   intervals.bed: tab-separated, no header: chr, start, end, name, TSS (CHM13 coordinates; TSS can be NA,
+##                  or several positions comma-separated, e.g. 2424,2343,6437, to outline each).
 ##                  The plot covers the CHM13 peaks overlapping the interval and every peak between them
 ##   coverage_cutoff: tiles with coverage below this are grey
 ##   remove_single_sample_peaks: TRUE to drop peaks transferred to only one assembly
@@ -170,6 +171,8 @@ for(k in seq_len(nrow(bed_intervals))){
   interval_start = bed_intervals[k,"start"]
   interval_end = bed_intervals[k,"end"]
   tss = bed_intervals[k,"tss"]
+  tss_positions = suppressWarnings(as.numeric(strsplit(as.character(tss), ",")[[1]]))
+  tss_positions = tss_positions[!is.na(tss_positions)]
   print(temp_gene)
 
   ## the interval is in CHM13 coordinates, so it is set by the CHM13 peaks in it: everything from the
@@ -203,20 +206,22 @@ for(k in seq_len(nrow(bed_intervals))){
     all_peaks_to_include_tbl$chr_order = int_summary$chr_order[m]
     all_peaks_to_include_tbl$consensus_peak_id = factor(all_peaks_to_include_tbl$consensus_peak_id, levels = consensus_peak_vect_ord)
 
+    ## the tss column can hold several positions, comma-separated (e.g. 2424,2343,6437); each is outlined
     tss_columns = NULL
-    if (!is.na(tss)){
-      chm13_plotted = int_summary[which(!is.na(int_summary$CHM13_start)),]
-      temp = chm13_plotted$consensus_peak_id[which(chm13_plotted$CHM13_start < tss & chm13_plotted$CHM13_end > tss)]
+    chm13_plotted = int_summary[which(!is.na(int_summary$CHM13_start)),]
+    for(one_tss in tss_positions){
+      temp = chm13_plotted$consensus_peak_id[which(chm13_plotted$CHM13_start < one_tss & chm13_plotted$CHM13_end > one_tss)]
       if(length(temp) > 0){
-        tss_columns = temp
+        tss_columns = c(tss_columns, temp)
       } else {
         ## the CHM13 peaks on either side of the TSS (only one side if the TSS is past the end)
-        lower <- which(chm13_plotted$CHM13_end < tss)
-        upper <- which(chm13_plotted$CHM13_start > tss)
+        lower <- which(chm13_plotted$CHM13_end < one_tss)
+        upper <- which(chm13_plotted$CHM13_start > one_tss)
         tss_rows = c(if(length(lower) > 0) max(lower), if(length(upper) > 0) min(upper))
-        tss_columns = chm13_plotted$consensus_peak_id[tss_rows]
+        tss_columns = c(tss_columns, chm13_plotted$consensus_peak_id[tss_rows])
       }
     }
+    tss_columns = unique(tss_columns)
 
     print("plotting...")
 

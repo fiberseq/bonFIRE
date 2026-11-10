@@ -216,5 +216,5 @@ Rscript downstream/plot_consensus_peaks_by_interval.R \
   intervals.bed 6 FALSE 0.1
 ```
 
-The bed file has five tab-separated columns and no header: chr, start, end, name, and a TSS position to
-outline (or NA). See the top of the script for the other arguments.
+The bed file has five tab-separated columns and no header: chr, start, end, name, and the TSS positions to
+outline (comma-separated, or NA). See the top of the script for the other arguments.
