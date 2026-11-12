@@ -20,7 +20,7 @@ MIN_FRAC_ACC = 0.2 #(minimum fraction accessibility to call a peak)
 ## for calling haplotype-selective peaks
 DIFF_THRESHOLD = 0.25 #(minimum H1-H2 accessibility difference for haplotype-selective)
 MIN_HAP_COV = 10 #(minimum coverage on both haplotypes to test selectivity)
-FDR_CUTOFF = .05 #(maximum Benjamini-Hochberg FDR across all tests for haplotype-selective)
+FISHER_P_CUTOFF = .05 #(maximum nominal Fisher's exact p value for haplotype-selective; no FDR correction)
 ## chromosomes left out of the haplotype-selectivity tests: one copy in males (X, Y), not diploid (M),
 ## or no chromosome (AMB)
 NON_AUTOSOMAL = c("chrX", "chrY", "chrM", "AMB")
@@ -92,7 +92,7 @@ tbl_haplotype[, nonfire_2 := coverage_2 - fire_coverage_2]
 tbl_haplotype[, abs_hap_diff := abs(fire_cov_OV_cov_1 - fire_cov_OV_cov_2)]
 
 ## only rows with enough coverage on both haplotypes and a large enough difference can be
-## haplotype-selective, so only those are tested, and the FDR is over those tests
+## haplotype-selective, so only those are tested (fewer tests, which also matters if an FDR correction is added)
 tbl_haplotype[, tested := fcoalesce(coverage_1 >= MIN_HAP_COV & coverage_2 >= MIN_HAP_COV & abs_hap_diff >= DIFF_THRESHOLD, FALSE)]
 
 print(paste0("calculating p values for ", sum(tbl_haplotype$tested), " of ", nrow(tbl_haplotype), " peak/sample pairs"))
@@ -102,10 +102,11 @@ tbl_haplotype[tested == TRUE, fisher_p := mapply(function(a, b, c, d) {
   }, fire_coverage_1, nonfire_1, fire_coverage_2, nonfire_2)]
 print("done calculating p values")
 
-tbl_haplotype[, fisher_fdr := NA_real_]
-tbl_haplotype[tested == TRUE, fisher_fdr := p.adjust(fisher_p, method = "BH")]
+## optional FDR correction over the tested pairs (not used for the calls below):
+#tbl_haplotype[, fisher_fdr := NA_real_]
+#tbl_haplotype[tested == TRUE, fisher_fdr := p.adjust(fisher_p, method = "BH")]
 
-tbl_haplotype[, hap_selective := tested & fcoalesce(fisher_fdr <= FDR_CUTOFF, FALSE)]
+tbl_haplotype[, hap_selective := tested & fcoalesce(fisher_p <= FISHER_P_CUTOFF, FALSE)]
 
 ### determine whether sequences are shared
 
