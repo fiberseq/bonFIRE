@@ -23,17 +23,16 @@ from the outputs of the bonFIRE pipeline in `<output_dir>/<prefix>/`:
 - `<prefix>_transferred_cons_peaks_native_sequences_from_main_output.bed.gz`: the sequence of each
   consensus peak on each assembly
 
-(see the README for their columns). The script does the same steps without the explanations; for a
+(see the README for their columns). The script performs the same steps without the explanations; for a
 large run, use it as a batch job, since the table can need tens of GB of memory (about 40 GB for 78 HPRC
-assemblies). The last section shows how peaks are ordered along a chromosome, which is what
-`downstream/plot_consensus_peaks_by_interval.R` uses to plot a region.
+assemblies).
 
 Every cutoff is a parameter. Change them in the header above, or when rendering:
 
 ```r
-rmarkdown::render("docs/vignettes/downstream_vignette.Rmd",
+rmarkdown::render("docs/vignettes/vignette_process_main_output_and_consensus_peak_summary.Rmd",
                   params = list(input_dir = "/path/to/output_dir/my_run/", prefix = "my_run",
-                                exclude_runs = "HG002_PS01015_PacBio", fdr_cutoff = 0.01))
+                                exclude_runs = "HG002_PS01015_PacBio", fisher_p_cutoff = 0.05))
 ```
 
 ```{r setup, message = FALSE}
@@ -49,7 +48,7 @@ dim(tbl)
 
 # 1. Leaving out runs
 
-There may be reason to leave out samples early in analysis. For example, you might plot coverage per consensus_peak_id per sample and realize some samples have low enough coverage that most of their data would be excluded from you analysis. Whether or not to toss these depends on your specific analysis. The code snippet below can be used to remove these samples and a subsequent step will remove any peaks that were only present in these samples (this is done after peak calling, below).
+There may be reason to leave out samples early in analysis. For example, you might plot coverage per consensus_peak_id per sample and realize some samples have low enough coverage that most of their data would be excluded from your analysis. Whether or not to toss these depends on your specific analysis. The code snippet below can be used to remove these samples and a subsequent step will remove any peaks that were only present in these samples (this is done after peak calling, below).
 
 `sample_id` is the run (`sample_name` from the input file) followed by the assembly haplotype, e.g.
 `HG00438_PS00991_ONT_HG00438_1`. To leave runs out of the analysis, list them in `exclude_runs`, comma-separated. You can list these as substrings of the haplotypes you want removed (e.g. `HG00438_PS00991_ONT` will result in both haplotypes of this sample being removed). 
@@ -65,7 +64,7 @@ tbl = tbl[!(sample_id %in% excluded)]
 # 2. Calling peaks
 
 A consensus peak is just a genomic region where a peak may or may not exist in the sample haplotype of interest. The parameters defined above (at least `min_fire_cov` (`r params$min_fire_cov`) FIRE reads and at least `min_frac_acc` (`r params$min_frac_acc`) of its
-reads are FIRE reads (`fire_cov_OV_cov`) were used to call peaks in the HPRC dataset and are a good starting point for most analyses. 
+reads are FIRE reads (`fire_cov_OV_cov`) were used to call peaks in the HPRC dataset and are a good starting point for most analyses). 
 
 
 ```{r call-peaks}
@@ -103,7 +102,7 @@ cons_peak_summary[, .N, by = .(consensus_peak_asm = fifelse(consensus_peak_asm =
 
 # 3. Haplotype-selective peaks
 
-Since the input into this pipeline are samples analyzed in a diploid reference space, we can use the consensus peak output to evaluate haplotype-selective peaks -- those with different accessibility within an individual. In the HPRC analysis, this was the starting point for identifying consensus peaks with variable accessibility across individuals (and ultimately genetic drivers of that variability) but we can do this analysis even for a single sample (diploid) run. This step combines chromatin actuation information for both haplotypes of an individual at a consensus peak onto a single line, and calculates a fishers exact p value used to determine haplotype-selective peaks. 
+Since the input into this pipeline are samples analyzed in a diploid reference space, we can use the consensus peak output to evaluate haplotype-selective peaks -- those with different accessibility within an individual. In the HPRC analysis, this was the starting point for identifying consensus peaks with variable accessibility across individuals (and ultimately genetic drivers of that variability) but we can do this analysis even for a single sample (diploid) run. This step combines chromatin actuation information for both haplotypes of an individual at a consensus peak onto a single line, and calculates a Fisher's exact p value used to determine haplotype-selective peaks. 
 
 
 ```{r haplotypes}
@@ -119,9 +118,9 @@ tbl_haplotype[, abs_hap_diff := abs(fire_cov_OV_cov_1 - fire_cov_OV_cov_2)]
 ```
 
 Various thresholds can be used to call haplotype selectivity, and the ultimate choice is again dependent on the downstream application. 
-A good starting point consistent with HPRC analysis is to require each haplotype to have a minimum coverage of `min_hap_cov` (`r params$min_hap_cov`), with an absolute actuation difference (abs_hap_diff) of `diff_threshold` (`r params$diff_threshold`), as well as a Fisher's exact (nominal) p-value < .05. Here, the data is first subset to meet the first two requirements before running the Fisher's exact test, saving time and reducing the number of tests performed which becomes relevant if an FDR correction is applied.
+A good starting point consistent with HPRC analysis is to require each haplotype to have a minimum coverage of `min_hap_cov` (`r params$min_hap_cov`), with an absolute actuation difference (abs_hap_diff) of `diff_threshold` (`r params$diff_threshold`), as well as a Fisher's exact (nominal) p-value <= .05. Here, the data is first subset to meet the first two requirements before running the Fisher's exact test, saving time and reducing the number of tests performed which becomes relevant if an FDR correction is applied.
 
-Whether an FDR correction is applied, and how this is performed (e.g. across the whole dataset, within a tissue group, etc.) again depend both on the data (e.g. coverage) and downstream applications. Because this analysis was ultimately performed for to identify genetic drivers of accessibility in the HPRC data, a process with downstream statistical funnels, only the nominal p-value was used to call haplotype selectivity, consistent with what is shown here. In your own analysis, you may want to determine a more stringent approach. 
+Whether an FDR correction is applied, and how this is performed (e.g. across the whole dataset, within a tissue group, etc.) again depend both on the data (e.g. coverage) and downstream applications. Because this analysis was ultimately performed to identify genetic drivers of accessibility in the HPRC data, a process with downstream statistical funnels, only the nominal p-value was used to call haplotype selectivity, consistent with what is shown here. In your own analysis, you may want to determine a more stringent approach. 
 
 
 ```{r hap-test}
@@ -141,7 +140,7 @@ tbl_haplotype[, .(pairs = .N, tested = sum(tested), hap_selective = sum(hap_sele
 ## haplotype-selective calls per run
 tbl_haplotype[hap_selective == TRUE, .N, by = sample][order(-N)]
 ```
-#### STOPPED EDITING HERE #####
+
 ```{r hap-plot, fig.width = 6, fig.height = 5}
 ggplot(tbl_haplotype[tested == TRUE],
        aes(x = fire_cov_OV_cov_1, y = fire_cov_OV_cov_2, colour = hap_selective)) +
