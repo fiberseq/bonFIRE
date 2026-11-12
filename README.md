@@ -299,7 +299,7 @@ For each interval in a bed file (CHM13 coordinates; columns chr, start, end, nam
 
 ### Vignette
 
-[docs/vignettes/downstream_vignette.Rmd](docs/vignettes/downstream_vignette.Rmd) walks through the steps of process_consensus_peak_output.R with explanations, with each cutoff as a parameter, and shows how chr_order is used to pull out a region. Render it with your own outputs:
+[docs/vignettes/downstream_vignette.Rmd](docs/vignettes/vignette_process_main_output_and_consensus_peak_summary.Rmd) walks through the steps of process_consensus_peak_output.R with explanations, with each cutoff as a parameter, and shows how chr_order is used to pull out a region. Render it with your own outputs:
 
 ```r
 rmarkdown::render("docs/vignettes/downstream_vignette.Rmd",
