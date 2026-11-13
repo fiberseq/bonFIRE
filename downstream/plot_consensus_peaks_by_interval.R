@@ -241,6 +241,12 @@ for(k in seq_len(nrow(bed_intervals))){
     plot_height = n_samples * tile_height + x_labels_height + 0.8 + ifelse(legend_on_top, 0.8, 0)  # title and margins
     plot_width = n_peaks * tile_width + y_labels_width + ifelse(legend_on_top, 0.3, 1.5)            # legend and margins
     plot_width = max(plot_width, 6)
+    ## PNGs can't be wider or taller than 50000 pixels, so large intervals (roughly 800+ peaks) are saved at a
+    ## lower resolution instead of failing
+    plot_dpi = min(300, floor(49000 / max(plot_width, plot_height)))
+    if(plot_dpi < 300){
+      print(paste0("large plot: saving at ", plot_dpi, " dpi instead of 300"))
+    }
 
     plot_title = paste0(temp_gene, " ",  interval_chr, ":",interval_start,"_", interval_end)
     file_base = paste0(output_dir, prefix, "_", interval_chr, "_",interval_start,"-", interval_end, "_", temp_gene)
@@ -251,7 +257,7 @@ for(k in seq_len(nrow(bed_intervals))){
       plot = full_int_plot,
       width = plot_width,
       height = plot_height,
-      dpi = 300,
+      dpi = plot_dpi,
       limitsize = FALSE
     )
 
@@ -264,7 +270,7 @@ for(k in seq_len(nrow(bed_intervals))){
       plot = clustered_plot,
       width = plot_width,
       height = plot_height,
-      dpi = 300,
+      dpi = plot_dpi,
       limitsize = FALSE
     )
 
