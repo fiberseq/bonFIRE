@@ -49,13 +49,14 @@ There are several bug fixes on the fibertools `main` branch ([3ba4545](https://g
 cargo install --git https://github.com/fiberseq/fibertools-rs --locked --root /path/to/fibertools_main
 ```
 
-This puts the binary at `/path/to/fibertools_main/bin/ft`. Include this line in your config.yaml to use this version instead of the bioconda one:
+This puts the binary at `/path/to/fibertools_main/bin/ft`. Include this line in your config.yaml to use this version instead of the bioconda one.
 
 ```yaml
 ft_path: /path/to/fibertools_main/bin/ft
 ```
 
 The build still reports its version as 0.13.0, so the version number doesn't tell you whether you have the fix. If the build fails, see the fibertools [install instructions](https://fiberseq.github.io/fibertools/install.html). Once a fixed release is on bioconda, this step won't be needed.
+
 
 ## Usage
 
