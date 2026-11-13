@@ -41,9 +41,8 @@ pixi install
 
 ### 4. Build fibertools from GitHub
 
-> **Note (to do):** the build steps below haven't been tested yet. Build `ft` this way, check that it runs and that a pipeline run with it as `ft_path` transfers peaks as expected, then remove this note.
 
-There are several bug fixes on the fibertools `main` branch ([3ba4545](https://github.com/fiberseq/fibertools-rs/commit/3ba4545)) that are not yet in the released version on bioconda. It is safest to build `ft` from GitHub and give its path as `ft_path` in the config. This needs Rust (install it with [rustup](https://rustup.rs) if `cargo` isn't available):
+There are several bug fixes on the fibertools `main` branch ([3ba4545](https://github.com/fiberseq/fibertools-rs/commit/3ba4545)) that are not yet in the released version on bioconda. It is safest to build `ft` from GitHub and give its path as `ft_path` in the config. This needs Rust (install it with [rustup](https://rustup.rs) if `cargo` isn't available). (This build requires a recent version of Rust; if the build fails with 'upgrade rustc or select compatible dependency versions', run rustup update stable and try again.)
 
 ```bash
 cargo install --git https://github.com/fiberseq/fibertools-rs --locked --root /path/to/fibertools_main
