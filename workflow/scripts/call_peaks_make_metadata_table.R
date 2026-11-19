@@ -54,6 +54,9 @@ read_tsv = function(file, header, unique_rows = FALSE, ...){
 }
 
 args <- commandArgs(trailingOnly = TRUE)
+## shared with the shared-reference metadata script; it's in this script's folder
+script_dir = dirname(sub("^--file=", "", grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)))
+source(file.path(script_dir, "orig_peak_overlap_counts.R"))
 
 input_dir=args[1]
 output_dir=input_dir
@@ -241,52 +244,14 @@ rm(updated_sample_idx)
 surj_peak_cons_peak_intersect$key = pair_key(match(paste0(surj_peak_cons_peak_intersect$sample_chr_id, "_", surj_peak_cons_peak_intersect$graph_asm), unique_sample_id),
                                              match(surj_peak_cons_peak_intersect$peak_id_cons, unique_cons_peak_id), length(unique_cons_peak_id))
 
-temp = as.data.frame(table(surj_peak_cons_peak_intersect$sample_graphHap_peak))
-temp_filt = temp[which(temp$Freq > 1),]
-temp_filt_2 = temp[which(temp$Freq == 2),]
-temp_filt_gr2 = temp[which(temp$Freq >2),]
-
-surj_peak_cons_peak_intersect_mult_to_one = surj_peak_cons_peak_intersect[which(surj_peak_cons_peak_intersect$sample_graphHap_peak %in% temp_filt$Var1),]
-surj_peak_cons_peak_intersect_mult_to_one = surj_peak_cons_peak_intersect_mult_to_one[order(as.numeric(surj_peak_cons_peak_intersect_mult_to_one$start_orig)),]
-surj_peak_cons_peak_intersect_mult_to_one = surj_peak_cons_peak_intersect_mult_to_one[order(surj_peak_cons_peak_intersect_mult_to_one$sample_graphHap_peak),]
-
-surj_peak_cons_peak_intersect_mult_to_one_2 = surj_peak_cons_peak_intersect_mult_to_one[which(surj_peak_cons_peak_intersect_mult_to_one$sample_graphHap_peak %in% temp_filt_2$Var1),]
-surj_peak_cons_peak_intersect_mult_to_one_gr2 = surj_peak_cons_peak_intersect_mult_to_one[which(surj_peak_cons_peak_intersect_mult_to_one$sample_graphHap_peak %in% temp_filt_gr2$Var1),]
-
-## pairs of original peaks on one consensus peak. The table is sorted by sample_graphHap_peak
-## and then start, so each pair is two neighboring rows, the lower start first
-true_mult_to_one_keys = c()
-if(nrow(surj_peak_cons_peak_intersect_mult_to_one_2) > 0){
-  first = surj_peak_cons_peak_intersect_mult_to_one_2[seq(1, nrow(surj_peak_cons_peak_intersect_mult_to_one_2), by = 2),]
-  second = surj_peak_cons_peak_intersect_mult_to_one_2[seq(2, nrow(surj_peak_cons_peak_intersect_mult_to_one_2), by = 2),]
-  stopifnot(first$sample_graphHap_peak == second$sample_graphHap_peak)
-  space_between_peaks = as.numeric(second$start_orig) - as.numeric(first$end_orig)
-  share_orig_chr = !is.na(first$chr_orig == second$chr_orig) & first$chr_orig == second$chr_orig
-  ## the surjected peak is the end of sample_graphHap_peak: ..._start_end
-  surj_peak_length = as.numeric(id_end(first$sample_graphHap_peak)) - as.numeric(id_start(first$sample_graphHap_peak))
-  dist_less_than_cons_peak = !is.na(space_between_peaks < surj_peak_length) & space_between_peaks < surj_peak_length
-  true_mult_to_one_keys = first$key[which(dist_less_than_cons_peak == FALSE | share_orig_chr == FALSE)]
-}
-
-### greater than 2:
-
-## three or more original peaks on one consensus peak: count them as separate peaks only
-## where the gap to the previous one is longer than the consensus peak
-gr2_keys = c()
-gr2_num_peaks = c()
-if(nrow(surj_peak_cons_peak_intersect_mult_to_one_gr2) > 0){
-  gr2 = surj_peak_cons_peak_intersect_mult_to_one_gr2
-  cons_peak_length = gr2$end_cons - gr2$start_cons
-  group_start = !duplicated(gr2$sample_graphHap_peak)
-  group = cumsum(group_start)
-  start_orig = as.numeric(gr2$start_orig)
-  prev_end_orig = c(NA, as.numeric(gr2$end_orig)[-nrow(gr2)])
-  new_peak = !group_start & (start_orig - prev_end_orig > cons_peak_length[group_start][group])
-  gr2_keys = gr2$key[group_start]
-  gr2_num_peaks = 1 + as.vector(rowsum(as.integer(new_peak), group, reorder = FALSE))
-}
-
-all_peaks_summary = as.data.frame(as.data.table(surj_peak_cons_peak_intersect)[, .(key = key[1], all_orig_overlapping_peaks = paste(peak_id_orig, collapse = ",")), by = sample_graphHap_peak])
+## how many separate original peaks each sample has on each consensus peak (orig_peak_overlap_counts.R)
+surj_peak_cons_peak_intersect$group = surj_peak_cons_peak_intersect$sample_graphHap_peak
+counts = count_orig_peaks_per_consensus_peak(surj_peak_cons_peak_intersect)
+true_mult_to_one_keys = counts$pair_keys
+gr2_keys = counts$gr2_keys
+gr2_num_peaks = counts$gr2_num_peaks
+all_peaks_summary = counts$summary
+rm(counts)
 
 progress("putting the table together")
 updated_tbl$num_overlapping_orig_peaks = 0
