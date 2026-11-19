@@ -1,0 +1,11 @@
+# Every run was processed against the same haploid reference, so no graph is used: consensus peaks are
+# called on that reference directly. Graph-only settings (graph, ft_param, vg_*, secondary reference, ...)
+# are ignored in this mode.
+output_dir: /path/to/output_dir
+prefix: my_shared_ref_run
+input_file: config/sample_configs/cons_peak_calling_shared_ref_input_sample.txt
+shared_ref: True
+# the reference all runs were processed against (gzipped or not)
+main_reference_fasta: /path/to/reference.fa
+# optional: an ft build to use (see Installation, step 4)
+#ft_path: /path/to/fibertools-rs/target/release/ft

@@ -1,0 +1,4 @@
+sample_name	path_to_fire_output_folder
+SAMPLE_A_liver	/path/to/fire_output/SAMPLE_A_liver/
+SAMPLE_A_lung	/path/to/fire_output/SAMPLE_A_lung/
+SAMPLE_B_liver	/path/to/fire_output/SAMPLE_B_liver/

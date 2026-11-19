@@ -146,13 +146,18 @@ rule decompress_main_ref_fasta:
     input:
         fasta=MAIN_REF_FASTA
     output:
-        fasta=temp(f"{global_output_dir}/{sample}/{sample}_Ref.fa")
+        fasta=temp(f"{global_output_dir}/{sample}/{sample}_Ref.fa"),
+        # indexed here so the index is temporary too (tools would otherwise leave one behind)
+        fai=temp(f"{global_output_dir}/{sample}/{sample}_Ref.fa.fai")
+    conda:
+        "envs/env.yml"
     log:
         f"{log_dir}/decompress_main_ref_fasta.log"
     shell:
         """
         exec > {log} 2>&1
         zcat {input.fasta} > {output.fasta}
+        samtools faidx {output.fasta}
         """
 
 ## the rules for each mode
