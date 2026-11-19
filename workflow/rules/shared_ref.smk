@@ -93,7 +93,7 @@ rule call_consensus_peaks:
         "../envs/env.yml"
     threads: 4
     resources:
-        mem_mb=mem_for(64000),
+        mem_mb=mem_for(32000),  # 13 GB for 10 runs on GRCh38
         runtime=60*12
     log:
         f"{log_dir}/call_consensus_peaks.log"
@@ -123,8 +123,8 @@ rule pileup_values_at_consensus_peaks:
     conda:
         "../envs/env.yml"
     resources:
-        mem_mb=mem_for(8000),
-        runtime=runtime_for(120)
+        mem_mb=mem_for(4000),  # under 1 GB; 35-60 min for a 6 GB pileup
+        runtime=runtime_for(180)
     log:
         f"{log_dir}/pileup_values_at_consensus_peaks_{{run}}.log"
     shell:
@@ -217,7 +217,7 @@ rule make_metadata_table:
         "../envs/R_env.yml"
     threads: 4
     resources:
-        mem_mb=mem_for(64000),
+        mem_mb=mem_for(16000),  # 3 GB for 10 runs and 431,000 consensus peaks
         runtime=runtime_for(60*2)
     log:
         f"{log_dir}/make_metadata_table.log"
