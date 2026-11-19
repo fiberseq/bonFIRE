@@ -69,8 +69,10 @@ secondary_ref_name=args[7]
 has_secondary_ref = secondary_ref_name != "NA"
 ## a peak's secondary reference location is kept if its length changed by at most this fraction
 length_change_filter=as.numeric(args[8])
+## sample_id, run and graph assembly name for every sample_id (no header)
+sample_ids_file=args[9]
 ## one _previous_peaks_{asm}.tsv per assembly
-previous_peak_files=args[-(1:8)]
+previous_peak_files=args[-(1:9)]
 
 progress("reading inputs")
 tbl = read_tsv(paste0(input_dir, prefix, "_max_score_per_peak_all_samples.bed"), header = T)
@@ -98,11 +100,17 @@ tbl$cons_end = as.numeric(id_end(tbl$consensus_peak_id))
 
 tbl$fire_cov_OV_cov = tbl$fire_coverage/tbl$coverage
 
-## sample_id is run_graphAsm, and graph_asm is its last two "_" fields
+## each sample_id's run and graph assembly name, from the table the Snakefile writes (sample_id is
+## run_graphAsm, but run and graph names can both contain "_", so the name isn't split)
 unique_sample_id = unique(tbl$sample_id)
-sample_graph_asm = paste0(id_start(unique_sample_id), "_", id_end(unique_sample_id))
+sample_ids = fread(sample_ids_file, header = FALSE, col.names = c("sample_id", "run", "graph_asm"), colClasses = "character")
+m = match(unique_sample_id, sample_ids$sample_id)
+if(anyNA(m)){
+  stop("these sample_ids are missing from ", sample_ids_file, ": ", paste(head(unique_sample_id[is.na(m)]), collapse = ", "))
+}
+sample_graph_asm = sample_ids$graph_asm[m]
 sample_asm = sample_prefix_file$asm[match(sample_graph_asm, sample_prefix_file$graph_asm)]
-sample_run = substr(unique_sample_id, 1, nchar(unique_sample_id) - nchar(sample_graph_asm) - 1)
+sample_run = sample_ids$run[m]
 tbl_sample_idx = match(tbl$sample_id, unique_sample_id)
 tbl$asm = sample_asm[tbl_sample_idx]
 

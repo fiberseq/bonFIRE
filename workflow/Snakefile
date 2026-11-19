@@ -198,6 +198,18 @@ pairs_1_4 = list(zip(input_tbl["sample_name"], input_tbl["hap2_in_graph"]))
 
 all_sample_pileup_pairs = pairs_1_3 + pairs_1_4
 
+# each run's sample_id for each of its assembly haplotypes is run_graphAsm (see process_intersection_file);
+# the metadata step looks the run and assembly up here instead of splitting the name, so run and graph
+# names can contain any number of "_"
+sample_ids_tbl = pd.DataFrame(
+    [(f"{run}_{asm}", run, asm) for run, asm in all_sample_pileup_pairs],
+    columns=["sample_id", "run", "graph_asm"]
+).drop_duplicates()
+ambiguous = sample_ids_tbl[sample_ids_tbl["sample_id"].duplicated(keep=False)]
+if len(ambiguous) > 0:
+    sys.exit("These run and graph name pairs give the same sample_id (run_graphName), so they can't be told apart:\n" + ambiguous.to_string(index=False))
+sample_ids_file = f"{global_output_dir}/{sample}/{sample}_sample_ids.tsv"
+write_tsv_if_changed(sample_ids_tbl, sample_ids_file)
 
 ## Old stuff
 
@@ -1321,6 +1333,7 @@ rule make_metadata_table:
         orig_peaks_intersect_cons=rules.intersect_original_and_transferred_consensus_peaks.output.intersect_out,
         surj_peaks_intersect_cons=rules.intersect_cons_surjected_peaks_w_consensus_peaks.output.out,
         graph_prefixes_input=graph_prefixes_input,
+        sample_ids=sample_ids_file,
         ref_chroms=rules.list_Ref_chromosomes.output.chroms,
         previous_peaks=expand(rules.determine_previous_peak_for_nonRef_chrs.output.previous_peaks, asm=unique_asms)
     output:
@@ -1349,6 +1362,7 @@ rule make_metadata_table:
             {MAIN_REF_NAME} \
             {params.secondary_ref_name} \
             {length_change_param} \
+            {input.sample_ids} \
             {input.previous_peaks}
         """
 
