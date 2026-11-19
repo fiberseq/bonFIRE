@@ -4,8 +4,11 @@ input_file: /mmfs1/gscratch/stergachislab/minkinaa/projects/multisample_cluster_
 #ft_path: /mmfs1/gscratch/stergachislab/mvollger/projects/dev-fibertools-rs/target/release/ft                                                                   
 ft_param: 1000
 graph: /mmfs1/gscratch/stergachislab/SMAHT/graphs/SMHT043/SMHT043.full_all_chrs.gbz
-CHM13_fasta_path: /mmfs1/gscratch/stergachislab/assemblies/T2Tv2.0_maskedY.fa
-hg38_fasta_path: /mmfs1/gscratch/stergachislab/assemblies/hg38.analysisSet.fa
+main_reference_fasta: /mmfs1/gscratch/stergachislab/assemblies/T2Tv2.0_maskedY.fa
+main_reference_name: CHM13
+# optional; remove both lines to skip the secondary reference
+secondary_reference_fasta: /mmfs1/gscratch/stergachislab/assemblies/hg38.analysisSet.fa
+secondary_reference_name: GRCh38
 Peak_length_change_param: 1
 split_graph: False
 make_graph_only: False

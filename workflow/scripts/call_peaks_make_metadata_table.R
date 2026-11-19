@@ -61,10 +61,16 @@ prefix=args[2]
 sample_pefix_file_name=args[3]
 threads=if(length(args) >= 4) as.integer(args[4]) else 1
 setDTthreads(threads)
-## CHM13 chromosome names, one per line
+## main reference chromosome names, one per line
 ref_chrs=readLines(args[5])
+## the references' names, which go into column names; secondary_ref_name is NA without a secondary reference
+main_ref_name=args[6]
+secondary_ref_name=args[7]
+has_secondary_ref = secondary_ref_name != "NA"
+## a peak's secondary reference location is kept if its length changed by at most this fraction
+length_change_filter=as.numeric(args[8])
 ## one _previous_peaks_{asm}.tsv per assembly
-previous_peak_files=args[-(1:5)]
+previous_peak_files=args[-(1:8)]
 
 progress("reading inputs")
 tbl = read_tsv(paste0(input_dir, prefix, "_max_score_per_peak_all_samples.bed"), header = T)
@@ -73,8 +79,10 @@ trans_peaks = read_tsv(paste0(input_dir, prefix, "_combined_tranferred_peaks_all
 sample_prefix_file = read.table(sample_pefix_file_name, sep = "\t", header = F, stringsAsFactors = F, comment.char = "")
 colnames(sample_prefix_file) = c("asm", "graph_asm", "path_to_fasta")
 
-hg38_file=read_tsv(paste0(input_dir, prefix, "_All_consensus_peaks_moved_to_GRCh38.bed"), header=F)
-colnames(hg38_file) = c("hg38_chr", "hg38_start", "hg38_end", "consensus_peak_id")
+if(has_secondary_ref){
+  sec_file=read_tsv(paste0(input_dir, prefix, "_All_consensus_peaks_moved_to_SecondaryRef.bed"), header=F)
+  colnames(sec_file) = c("sec_chr", "sec_start", "sec_end", "consensus_peak_id")
+}
 ## only the run and the transferred peak are used from this file
 orig_peak_trans_peak_intersect=read_tsv(paste0(input_dir, prefix, "_orig_called_peaks_intersect_transferred_consensus_peaks.bed"), header=F, unique_rows = T, select = c(4, 6, 7, 8))
 colnames(orig_peak_trans_peak_intersect)=c("sample_id", "trans_chr", "trans_start", "trans_end")
@@ -129,33 +137,38 @@ rm(trans_peaks, transferred)
 
 updated_tbl$asm_peak_id = paste0(updated_tbl$asm_chr, "_", updated_tbl$asm_start, "_", updated_tbl$asm_end)
 
-### add hg38 info
+### add secondary reference info
+## column names: secondary_ref_chr_<name>, secondary_ref_start_<name>, secondary_ref_end_<name>, exists_in_secondary_ref_<name>
+if(has_secondary_ref){
+  progress("adding secondary reference info")
+  sec_cols = paste0(c("secondary_ref_chr_", "secondary_ref_start_", "secondary_ref_end_"), secondary_ref_name)
+  sec_file$cons_chr = id_chr(sec_file$consensus_peak_id)
+  sec_file$cons_start = as.numeric(id_start(sec_file$consensus_peak_id))
+  sec_file$cons_end = as.numeric(id_end(sec_file$consensus_peak_id))
 
-progress("adding hg38 info")
-hg38_file$cons_chr = id_chr(hg38_file$consensus_peak_id)
-hg38_file$cons_start = as.numeric(id_start(hg38_file$consensus_peak_id))
-hg38_file$cons_end = as.numeric(id_end(hg38_file$consensus_peak_id))
+  sec_file$cons_peak_length = sec_file$cons_end - sec_file$cons_start
+  sec_file$sec_peak_length = sec_file$sec_end - sec_file$sec_start
 
-hg38_file$cons_peak_length = hg38_file$cons_end - hg38_file$cons_start
-hg38_file$hg38_peak_length = hg38_file$hg38_end - hg38_file$hg38_start
+  ## same length filter as for the original peaks: drop locations whose length changed by more than length_change_filter
+  sec_file$length_change = abs(sec_file$sec_peak_length-sec_file$cons_peak_length)/sec_file$cons_peak_length
 
-hg38_file$length_diff = abs(hg38_file$hg38_peak_length-hg38_file$cons_peak_length)
-hg38_file$percent_diff = hg38_file$length_diff/hg38_file$cons_peak_length*100
-
-hg38_file_pass_filt = hg38_file[which(hg38_file$percent_diff < 20),]
-hg38_file_pass_filt_for_merge = hg38_file_pass_filt[,c(1:4)]
-if(anyDuplicated(hg38_file_pass_filt_for_merge$consensus_peak_id) == 0){
-  ## one hg38 location per consensus peak, so a lookup gives the same rows as a join
-  m = match(updated_tbl$consensus_peak_id, hg38_file_pass_filt_for_merge$consensus_peak_id)
-  updated_tbl$hg38_chr = hg38_file_pass_filt_for_merge$hg38_chr[m]
-  updated_tbl$hg38_start = hg38_file_pass_filt_for_merge$hg38_start[m]
-  updated_tbl$hg38_end = hg38_file_pass_filt_for_merge$hg38_end[m]
-} else {
-  updated_tbl <- left_join(updated_tbl, hg38_file_pass_filt_for_merge, by = "consensus_peak_id")
-  updated_sample_idx = match(updated_tbl$sample_id, unique_sample_id)
+  sec_file_pass_filt = sec_file[which(sec_file$length_change <= length_change_filter),]
+  sec_file_pass_filt_for_merge = sec_file_pass_filt[,c(1:4)]
+  colnames(sec_file_pass_filt_for_merge)[1:3] = sec_cols
+  if(anyDuplicated(sec_file_pass_filt_for_merge$consensus_peak_id) == 0){
+    ## one secondary reference location per consensus peak, so a lookup gives the same rows as a join
+    m = match(updated_tbl$consensus_peak_id, sec_file_pass_filt_for_merge$consensus_peak_id)
+    for(col in sec_cols){
+      updated_tbl[[col]] = sec_file_pass_filt_for_merge[[col]][m]
+    }
+  } else {
+    updated_tbl <- left_join(updated_tbl, sec_file_pass_filt_for_merge, by = "consensus_peak_id")
+    updated_sample_idx = match(updated_tbl$sample_id, unique_sample_id)
+  }
+  sec_exists_col = paste0("exists_in_secondary_ref_", secondary_ref_name)
+  updated_tbl[[sec_exists_col]] = !is.na(updated_tbl[[sec_cols[1]]])
+  rm(sec_file, sec_file_pass_filt, sec_file_pass_filt_for_merge)
 }
-updated_tbl$exists_in_hg38 = FALSE
-updated_tbl$exists_in_hg38[which(!is.na(updated_tbl$hg38_chr))] = TRUE
 
 ## add info about whether this run's own original peaks overlap the transferred peak
 progress("adding original peak overlaps")
@@ -308,42 +321,46 @@ if(nrow(conflicts) > 0){
 fwrite(previous_peaks, paste0(output_dir, prefix, "_previous_peaks_nonRef_chrs.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
 
 progress("summarizing each consensus peak")
-## one row per consensus peak; hg38 info is the same in every row of a peak
+## one row per consensus peak; secondary reference info is the same in every row of a peak, so it comes
+## from the peak's first row
 peak_summary = updated_tbl[, .(cons_chr = cons_chr[1],
                                cons_start = cons_start[1],
-                               cons_end = cons_end[1],
-                               hg38_chr = hg38_chr[1],
-                               hg38_start = hg38_start[1],
-                               hg38_end = hg38_end[1],
-                               exists_in_hg38 = any(exists_in_hg38)),
+                               cons_end = cons_end[1]),
                            by = consensus_peak_id]
-peak_summary[, exists_in_CHM13 := cons_chr %in% ref_chrs]
+if(has_secondary_ref){
+  m = match(peak_summary$consensus_peak_id, updated_tbl$consensus_peak_id)
+  for(col in c(sec_exists_col, sec_cols)){
+    peak_summary[, (col) := updated_tbl[[col]][m]]
+  }
+}
+## exists_in_ref, ref_chr, ref_start and ref_end are renamed with the main reference's name when written
+peak_summary[, exists_in_ref := cons_chr %in% ref_chrs]
 ## non-reference peaks were called on an assembly in the graph, e.g. SMHT004#1#haplotype1-0000001 -> SMHT004_1
 ## and chr10_MATERNAL -> HG002_1
-peak_summary[, consensus_peak_asm := ifelse(exists_in_CHM13, "CHM13",
+peak_summary[, consensus_peak_asm := ifelse(exists_in_ref, main_ref_name,
                                             sample_prefix_file$graph_asm[match(contig_asm(cons_chr, sample_prefix_file$asm), sample_prefix_file$asm)])]
 m = match(peak_summary$consensus_peak_id, previous_peaks$consensus_peak_id)
-peak_summary[, chr := ifelse(exists_in_CHM13, cons_chr, previous_peaks$chr[m])]
+peak_summary[, chr := ifelse(exists_in_ref, cons_chr, previous_peaks$chr[m])]
 ## used for ordering below, then dropped: the order and the two at_*_of_chr columns carry it
-peak_summary[, previous_peak := ifelse(exists_in_CHM13, NA_character_, previous_peaks$previous_peak[m])]
-## a reference peak's CHM13 coordinates are its own; non-reference peaks don't move to CHM13
-peak_summary[, `:=`(CHM13_chr = fifelse(exists_in_CHM13, cons_chr, NA_character_),
-                    CHM13_start = fifelse(exists_in_CHM13, cons_start, NA),
-                    CHM13_end = fifelse(exists_in_CHM13, cons_end, NA))]
+peak_summary[, previous_peak := ifelse(exists_in_ref, NA_character_, previous_peaks$previous_peak[m])]
+## a reference peak's main reference coordinates are its own; non-reference peaks don't move to the main reference
+peak_summary[, `:=`(ref_chr = fifelse(exists_in_ref, cons_chr, NA_character_),
+                    ref_start = fifelse(exists_in_ref, cons_start, NA),
+                    ref_end = fifelse(exists_in_ref, cons_end, NA))]
 
 progress("ordering peaks along each chromosome")
-## chr_slot: CHM13 peak k on a chromosome has slot 2k, and the non-reference peaks between CHM13 peaks
-## k and k+1 share slot 2k+1 (AT_START is 1, AT_END the slot after the last CHM13 peak).
+## chr_slot: main reference peak k on a chromosome has slot 2k, and the non-reference peaks between main
+## reference peaks k and k+1 share slot 2k+1 (AT_START is 1, AT_END the slot after the last main reference peak).
 ## chr_order numbers every peak 1..X along its chromosome. Within a shared slot, peaks are ordered by
-## assembly, contig and position along the contig (reversed where the contig runs against CHM13), so
+## assembly, contig and position along the contig (reversed where the contig runs against the main reference), so
 ## only the order of peaks from the same contig is real. AMB peaks have no chromosome, so neither column
-ref_rank = peak_summary[exists_in_CHM13 == TRUE, .(consensus_peak_id, chr, CHM13_start, CHM13_end)]
-setorder(ref_rank, chr, CHM13_start, CHM13_end)
+ref_rank = peak_summary[exists_in_ref == TRUE, .(consensus_peak_id, chr, ref_start, ref_end)]
+setorder(ref_rank, chr, ref_start, ref_end)
 ref_rank[, rank := seq_len(.N), by = chr]
 n_ref = ref_rank[, .N, by = chr]
 peak_summary[, chr_slot := NA_integer_]
-peak_summary[exists_in_CHM13 == TRUE, chr_slot := 2L * ref_rank$rank[match(consensus_peak_id, ref_rank$consensus_peak_id)]]
-peak_summary[exists_in_CHM13 == FALSE, chr_slot := 2L * ref_rank$rank[match(previous_peak, ref_rank$consensus_peak_id)] + 1L]
+peak_summary[exists_in_ref == TRUE, chr_slot := 2L * ref_rank$rank[match(consensus_peak_id, ref_rank$consensus_peak_id)]]
+peak_summary[exists_in_ref == FALSE, chr_slot := 2L * ref_rank$rank[match(previous_peak, ref_rank$consensus_peak_id)] + 1L]
 peak_summary[previous_peak == "AT_START", chr_slot := 1L]
 peak_summary[previous_peak == "AT_END", chr_slot := 2L * n_ref$N[match(chr, n_ref$chr)] + 1L]
 unslotted = peak_summary[is.na(chr_slot) & !is.na(chr) & chr != "AMB"]
@@ -351,19 +368,22 @@ if(nrow(unslotted) > 0){
   print(head(unslotted))
   stop(nrow(unslotted), " peaks with a chromosome could not be ordered")
 }
-peak_summary[, along_contig := fifelse(!exists_in_CHM13 & previous_peaks$orientation[m] %in% "R", -cons_start, cons_start)]
+peak_summary[, along_contig := fifelse(!exists_in_ref & previous_peaks$orientation[m] %in% "R", -cons_start, cons_start)]
 ordered = peak_summary[!is.na(chr_slot), .(consensus_peak_id, chr, chr_slot, consensus_peak_asm, cons_chr, along_contig)]
 setorder(ordered, chr, chr_slot, consensus_peak_asm, cons_chr, along_contig)
 ordered[, chr_order := seq_len(.N), by = chr]
 peak_summary[, chr_order := ordered$chr_order[match(consensus_peak_id, ordered$consensus_peak_id)]]
-## non-reference peaks before the assembly's first / after its last CHM13 peak on the chromosome
+## non-reference peaks before the assembly's first / after its last main reference peak on the chromosome
 ## (AT_START / AT_END); NA for AMB peaks, which have no chromosome
 peak_summary[, `:=`(at_start_of_chr = fifelse(is.na(chr_slot), NA, previous_peak %in% "AT_START"),
                     at_end_of_chr = fifelse(is.na(chr_slot), NA, previous_peak %in% "AT_END"))]
 
 peak_summary[, c("cons_chr", "cons_start", "cons_end", "along_contig", "previous_peak") := NULL]
-setcolorder(peak_summary, c("consensus_peak_id", "consensus_peak_asm", "chr", "exists_in_CHM13", "CHM13_chr", "CHM13_start", "CHM13_end",
-                            "exists_in_hg38", "hg38_chr", "hg38_start", "hg38_end",
+setnames(peak_summary, c("exists_in_ref", "ref_chr", "ref_start", "ref_end"),
+         paste0(c("exists_in_main_ref_", "main_ref_chr_", "main_ref_start_", "main_ref_end_"), main_ref_name))
+setcolorder(peak_summary, c("consensus_peak_id", "consensus_peak_asm", "chr",
+                            paste0(c("exists_in_main_ref_", "main_ref_chr_", "main_ref_start_", "main_ref_end_"), main_ref_name),
+                            if(has_secondary_ref) c(sec_exists_col, sec_cols),
                             "chr_slot", "chr_order", "at_start_of_chr", "at_end_of_chr"))
 fwrite(peak_summary, paste0(output_dir, prefix, "_consensus_peak_summary.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
 progress("done")

@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-## Assign each peak that didn't surject onto CHM13 to an assembly.
+## Assign each peak that didn't surject onto the main reference to an assembly.
 ##
 ## The peaks are surjected onto every assembly in parallel beforehand (one bed per
 ## assembly). This script then picks assemblies in the same greedy order the old
@@ -18,9 +18,11 @@ asm_conversion_file=args[2]
 length_change_filter=as.numeric(args[3])
 output_all=args[4]
 output_tried=args[5]
+# the main reference's name, which the peaks were tried on first
+main_ref_name=args[6]
 # comma-separated graph assembly names, in the same order as the surjected beds that follow
-surj_asms=strsplit(args[6], ",")[[1]]
-surj_bed_files=args[7:length(args)]
+surj_asms=strsplit(args[7], ",")[[1]]
+surj_bed_files=args[8:length(args)]
 stopifnot(length(surj_asms) == length(surj_bed_files))
 
 orig_bed = read.table(orig_bed_file, header = T, sep = "\t", stringsAsFactors = F, comment.char = "")
@@ -42,7 +44,7 @@ read_surj_bed = function(f){
 surj_beds = setNames(lapply(surj_bed_files, read_surj_bed), surj_asms)
 
 all = orig_bed
-tried_asms = c("CHM13")
+tried_asms = c(main_ref_name)
 
 repeat {
   orig_bed_NOT_surj = all[which(all$surj_chr == "NONE"),]

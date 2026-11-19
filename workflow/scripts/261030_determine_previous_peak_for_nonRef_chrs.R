@@ -29,15 +29,15 @@ sample_prefix_file_name=args[2]
 asm=args[3]
 ref_chr_file=args[4]
 output_file=args[5]
-## every CHM13 consensus peak (first three columns chrom, start, end; header allowed)
-chm13_peaks_file=args[6]
+## every main reference consensus peak (first three columns chrom, start, end; header allowed)
+ref_peaks_file=args[6]
 
 #tbl = fread("/Users/minkinaa/Documents/StergachisLab/projects/HLA_peak_assignment/test_files/SMaHT_ElevenSampleConsPeakCalling_CLAUDETEST_ALL_global_peaks_surjected_onto_SMHT004_1_MANUAL_ADDITIONS.bed", header = F, sep = "\t")
 #tbl = fread("/Users/minkinaa/Documents/StergachisLab/projects/HLA_peak_assignment/test_files/SMaHT_ElevenSampleConsPeakCalling_CLAUDETEST_ALL_global_peaks_surjected_onto_SMHT004_1.bed", header = F, sep = "\t")
 tbl = as.data.frame(fread(input_bed, header = F, sep = "\t"))
 colnames(tbl) = c("asm_chr", "asm_start", "asm_end", "consensus_peak_id")
 
-## chromosome names in the reference (CHM13), one per line
+## chromosome names in the main reference, one per line
 ref_chrs = readLines(ref_chr_file)
 
 ## prefix of this assembly's contigs, e.g. SMHT004_1 -> "SMHT004#1#"
@@ -179,29 +179,29 @@ tbl_ord_by_asm_coords_NonRef_complex_second_chr = left_join(tbl_ord_by_asm_coord
 
 ## a peak past the end of its contig's ref peaks sits next to the nearest one (the anchor): just
 ## after it, or just before it if the contig runs the other way. Just before the anchor means just
-## after the CHM13 peak that comes before the anchor in the full CHM13 peak list (not just among
+## after the main reference peak that comes before the anchor in the full main reference peak list (not just among
 ## the peaks in this assembly), or AT_START if the anchor is the chromosome's first peak
-chm13_peaks = fread(chm13_peaks_file, select = 1:3)
-setnames(chm13_peaks, c("chr", "start", "end"))
-setorder(chm13_peaks, chr, start, end)
-all_ref_ids = paste(chm13_peaks$chr, chm13_peaks$start, chm13_peaks$end, sep = "_")
+ref_peaks = fread(ref_peaks_file, select = 1:3)
+setnames(ref_peaks, c("chr", "start", "end"))
+setorder(ref_peaks, chr, start, end)
+all_ref_ids = paste(ref_peaks$chr, ref_peaks$start, ref_peaks$end, sep = "_")
 all_ref_peak_before = c(NA, head(all_ref_ids, -1))
-all_ref_peak_before[which(c(NA, head(chm13_peaks$chr, -1)) != chm13_peaks$chr)] = NA
+all_ref_peak_before[which(c(NA, head(ref_peaks$chr, -1)) != ref_peaks$chr)] = NA
 peak_before = function(anchor){
   stopifnot(all(anchor %in% all_ref_ids))
   before = all_ref_peak_before[match(anchor, all_ref_ids)]
   ifelse(is.na(before), "AT_START", before)
 }
 
-## but if the anchor is this assembly's first CHM13 peak on its chromosome, the peak could be
+## but if the anchor is this assembly's first main reference peak on its chromosome, the peak could be
 ## anywhere between the chromosome's start and the anchor, so it goes to AT_START; likewise past
-## the assembly's last CHM13 peak on the chromosome it goes to AT_END
+## the assembly's last main reference peak on the chromosome it goes to AT_END
 asm_ref_ids = all_ref_ids[all_ref_ids %in% tbl_ord_by_ref_coords$consensus_peak_id]
 asm_ref_chr = sub("_[^_]*_[^_]*$", "", asm_ref_ids)
 asm_first_ref = asm_ref_ids[!duplicated(asm_ref_chr)]
 asm_last_ref = asm_ref_ids[!duplicated(asm_ref_chr, fromLast = TRUE)]
 
-## the peak is after the anchor in contig order, so at the contig's end: after the anchor on CHM13
+## the peak is after the anchor in contig order, so at the contig's end: after the anchor on the main reference
 ## if the contig runs forward, before it if reversed
 place_at_contig_end = function(tbl, anchor, contig_position){
   n = nrow(tbl)
@@ -210,7 +210,7 @@ place_at_contig_end = function(tbl, anchor, contig_position){
   tbl$contig_position = rep(contig_position, n)
   tbl$contig_anchor_peak = anchor
   tbl$open_side = rep(NA_character_, n)
-  ## the anchor is before the peak on CHM13 when the contig end and its direction agree
+  ## the anchor is before the peak on the main reference when the contig end and its direction agree
   after = which((contig_position == "contig_end" & tbl$orientation == "F") | (contig_position == "contig_start" & tbl$orientation == "R"))
   before = which((contig_position == "contig_end" & tbl$orientation == "R") | (contig_position == "contig_start" & tbl$orientation == "F"))
   tbl$open_side[after] = "next_unknown"
@@ -237,7 +237,7 @@ if(nrow(tbl_ord_by_asm_coords_NonRef_complex_NonMatch_chr) > 0){
   complex_amb = tbl_ord_by_asm_coords_NonRef_complex_NonMatch_chr[,c("consensus_peak_id", "most_likely_chr", "True_Previous_Peak", "orientation")]
   colnames(complex_amb) = c("consensus_peak_id", "chr", "previous_peak", "orientation")
   complex_amb$previous_peak_full_list = "AMB"
-  complex_amb[, c("contig_position", "open_side", "contig_anchor_peak")] = NA_character_
+  for(col in c("contig_position", "open_side", "contig_anchor_peak")) complex_amb[[col]] = rep(NA_character_, nrow(complex_amb))
 
 }
 
@@ -247,12 +247,13 @@ if(nrow(tbl_ord_by_asm_coords_NonRef_complex_NonMatch_chr) > 0){
 ## (for peaks at contig ends, the direction of the whole contig on its most likely chr)
 ## previous_peak_full_list: as previous_peak, but a peak at a contig end is placed beside its anchor
 ## even at the edges of the assembly's chromosome (where previous_peak is AT_START or AT_END).
-## contig_position: contig_start or contig_end for peaks past the last CHM13 peak on their contig,
-## with contig_anchor_peak the CHM13 peak they were placed by and open_side the side of the peak
-## that isn't known on CHM13 (previous_unknown or next_unknown)
+## contig_position: contig_start or contig_end for peaks past the last main reference peak on their contig,
+## with contig_anchor_peak the main reference peak they were placed by and open_side the side of the peak
+## that isn't known on the main reference (previous_unknown or next_unknown)
 out_cols = c("consensus_peak_id", "chr", "previous_peak", "orientation", "previous_peak_full_list", "contig_position", "open_side", "contig_anchor_peak")
 tbl_ord_by_asm_coords_NonRef_Noncomplex$previous_peak_full_list = tbl_ord_by_asm_coords_NonRef_Noncomplex$True_Previous_Peak
-tbl_ord_by_asm_coords_NonRef_Noncomplex[, c("contig_position", "open_side", "contig_anchor_peak")] = NA_character_
+## one column at a time: adding several at once fails on a table with no rows
+for(col in c("contig_position", "open_side", "contig_anchor_peak")) tbl_ord_by_asm_coords_NonRef_Noncomplex[[col]] = rep(NA_character_, nrow(tbl_ord_by_asm_coords_NonRef_Noncomplex))
 non_complex = tbl_ord_by_asm_coords_NonRef_Noncomplex[,c("consensus_peak_id", "TrueChr","True_Previous_Peak", "orientation", out_cols[5:8])]
 complex_first = tbl_ord_by_asm_coords_NonRef_complex_first_chr[,c("consensus_peak_id", "most_likely_chr", "True_Previous_Peak", "orientation", out_cols[5:8])]
 complex_second = tbl_ord_by_asm_coords_NonRef_complex_second_chr[,c("consensus_peak_id", "most_likely_chr", "True_Previous_Peak", "orientation", out_cols[5:8])]

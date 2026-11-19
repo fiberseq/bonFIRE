@@ -1,7 +1,7 @@
 ## Heatmaps of fire_cov_OV_cov (samples x consensus peaks) for intervals of interest, one plot per interval,
 ## plus a second plot with the samples clustered (_clustered.png) and a table of the plotted rows.
 ## Peaks are ordered along the chromosome by the chr_order column of [prefix]_consensus_peak_summary.tsv,
-## so non-reference peaks appear between the CHM13 peaks they sit between. Both tables can be subset first
+## so non-reference peaks appear between the main reference peaks they sit between. Both tables can be subset first
 ## (by sample, peak, chromosome...): a peak is plotted if it is in both.
 ##
 ## usage: Rscript plot_consensus_peaks_by_interval.R output_dir prefix final_tbl summary intervals.bed \
@@ -10,10 +10,10 @@
 ##   prefix: start of the output file names
 ##   final_tbl: [prefix]_final_tbl_w_metadata.tsv.gz, or a subset of it
 ##   summary: [prefix]_consensus_peak_summary.tsv (or the processed one, or a subset); needs
-##            consensus_peak_id, chr, CHM13_start, CHM13_end, chr_slot, chr_order and at_end_of_chr
-##   intervals.bed: tab-separated, no header: chr, start, end, name, TSS (CHM13 coordinates; TSS can be NA,
+##            consensus_peak_id, chr, main_ref_start_<name>, main_ref_end_<name>, chr_slot, chr_order and at_end_of_chr
+##   intervals.bed: tab-separated, no header: chr, start, end, name, TSS (main reference coordinates; TSS can be NA,
 ##                  or several positions comma-separated, e.g. 2424,2343,6437, to outline each).
-##                  The plot covers the CHM13 peaks overlapping the interval and every peak between them
+##                  The plot covers the main reference peaks overlapping the interval and every peak between them
 ##   coverage_cutoff: tiles with coverage below this are grey
 ##   remove_single_sample_peaks: TRUE to drop peaks transferred to only one assembly
 ##   min_frac_actuation: optional (default 0.10); peaks whose highest fire_cov_OV_cov is below this are dropped
@@ -55,7 +55,19 @@ colnames(tbl) <- gsub("^X\\.", "", colnames(tbl))
 print("reading_in_peak_summary_table")
 
 peak_summary = as.data.frame(fread(summary_input, header = TRUE, sep = "\t", na.strings = "NA"))
-needed = c("consensus_peak_id", "chr", "CHM13_start", "CHM13_end", "chr_slot", "chr_order", "at_end_of_chr")
+## the main reference coordinates are main_ref_start_<name> / main_ref_end_<name> (CHM13_start / CHM13_end in
+## summaries from older runs); they're called ref_start / ref_end here
+start_col = grep("^main_ref_start_", colnames(peak_summary), value = TRUE)
+end_col = grep("^main_ref_end_", colnames(peak_summary), value = TRUE)
+if(length(start_col) == 0 && "CHM13_start" %in% colnames(peak_summary)){
+  start_col = "CHM13_start"
+  end_col = "CHM13_end"
+}
+if(length(start_col) != 1 || length(end_col) != 1){
+  stop("the peak summary needs one main_ref_start_<name> and one main_ref_end_<name> column")
+}
+colnames(peak_summary)[match(c(start_col, end_col), colnames(peak_summary))] = c("ref_start", "ref_end")
+needed = c("consensus_peak_id", "chr", "chr_slot", "chr_order", "at_end_of_chr")
 missing = setdiff(needed, colnames(peak_summary))
 if(length(missing) > 0){
   stop("the peak summary is missing ", paste(missing, collapse = ", "), "; it needs a pipeline run that adds chr_order and at_end_of_chr")
@@ -175,28 +187,28 @@ for(k in seq_len(nrow(bed_intervals))){
   tss_positions = tss_positions[!is.na(tss_positions)]
   print(temp_gene)
 
-  ## the interval is in CHM13 coordinates, so it is set by the CHM13 peaks in it: everything from the
+  ## the interval is in main reference coordinates, so it is set by the main reference peaks in it: everything from the
   ## first one's chr_order to the last one's is plotted, non-reference peaks in between included.
-  ## Non-reference peaks before the first or after the last CHM13 peak in the interval aren't, as they
+  ## Non-reference peaks before the first or after the last main reference peak in the interval aren't, as they
   ## could be on either side of the interval's edge, except AT_START / AT_END peaks when the
-  ## interval includes the chromosome's first / last CHM13 peak (chr_slot 2 / the one before AT_END)
+  ## interval includes the chromosome's first / last main reference peak (chr_slot 2 / the one before AT_END)
   chr_summary = peak_summary[which(peak_summary$chr == interval_chr),]
-  chm13_in_int = chr_summary[which(!is.na(chr_summary$CHM13_start) & chr_summary$CHM13_end > interval_start & chr_summary$CHM13_start < interval_end),]
-  if(nrow(chm13_in_int) == 0){
-    print("no CHM13 peaks in the interval, skipping")
+  ref_in_int = chr_summary[which(!is.na(chr_summary$ref_start) & chr_summary$ref_end > interval_start & chr_summary$ref_start < interval_end),]
+  if(nrow(ref_in_int) == 0){
+    print("no main reference peaks in the interval, skipping")
     next
   }
-  first_order = min(chm13_in_int$chr_order)
-  last_order = max(chm13_in_int$chr_order)
-  first_slot = min(chm13_in_int$chr_slot)
-  last_slot = max(chm13_in_int$chr_slot)
+  first_order = min(ref_in_int$chr_order)
+  last_order = max(ref_in_int$chr_order)
+  first_slot = min(ref_in_int$chr_slot)
+  last_slot = max(ref_in_int$chr_slot)
   in_int = (chr_summary$chr_order >= first_order & chr_summary$chr_order <= last_order) |
     (first_slot == 2 & chr_summary$chr_slot == 1) |
     (chr_summary$at_end_of_chr %in% TRUE & chr_summary$chr_slot == last_slot + 1)
   int_summary = chr_summary[which(in_int),]
   int_summary = int_summary[order(int_summary$chr_order),]
   consensus_peak_vect_ord = int_summary$consensus_peak_id
-  print(paste0("peaks: ", length(consensus_peak_vect_ord), " (non-reference: ", sum(is.na(int_summary$CHM13_start)), ")"))
+  print(paste0("peaks: ", length(consensus_peak_vect_ord), " (non-reference: ", sum(is.na(int_summary$ref_start)), ")"))
 
   all_peaks_to_include_tbl = tbl[which(tbl$consensus_peak_id %in% consensus_peak_vect_ord),]
   print(paste0("rows_in_table: ", (nrow(all_peaks_to_include_tbl))))
@@ -208,17 +220,17 @@ for(k in seq_len(nrow(bed_intervals))){
 
     ## the tss column can hold several positions, comma-separated (e.g. 2424,2343,6437); each is outlined
     tss_columns = NULL
-    chm13_plotted = int_summary[which(!is.na(int_summary$CHM13_start)),]
+    ref_plotted = int_summary[which(!is.na(int_summary$ref_start)),]
     for(one_tss in tss_positions){
-      temp = chm13_plotted$consensus_peak_id[which(chm13_plotted$CHM13_start < one_tss & chm13_plotted$CHM13_end > one_tss)]
+      temp = ref_plotted$consensus_peak_id[which(ref_plotted$ref_start < one_tss & ref_plotted$ref_end > one_tss)]
       if(length(temp) > 0){
         tss_columns = c(tss_columns, temp)
       } else {
-        ## the CHM13 peaks on either side of the TSS (only one side if the TSS is past the end)
-        lower <- which(chm13_plotted$CHM13_end < one_tss)
-        upper <- which(chm13_plotted$CHM13_start > one_tss)
+        ## the main reference peaks on either side of the TSS (only one side if the TSS is past the end)
+        lower <- which(ref_plotted$ref_end < one_tss)
+        upper <- which(ref_plotted$ref_start > one_tss)
         tss_rows = c(if(length(lower) > 0) max(lower), if(length(upper) > 0) min(upper))
-        tss_columns = c(tss_columns, chm13_plotted$consensus_peak_id[tss_rows])
+        tss_columns = c(tss_columns, ref_plotted$consensus_peak_id[tss_rows])
       }
     }
     tss_columns = unique(tss_columns)
