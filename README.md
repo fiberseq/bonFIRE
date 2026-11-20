@@ -6,7 +6,7 @@ The input to bonFIRE is one or several [FIRE](https://fiberseq.github.io/fire/ru
 
 ### Some common use cases for bonFIRE are:
 
-(1) Compare the chromatin landscape between samples processed against a **common haploid reference** (e.g. GRCh38). For now, this function runs from a separate repo, linked below. In the near future, this simplest case of collating peaks across samples will be available from this pipeline. 
+(1) Compare the chromatin landscape between samples processed against a **common haploid reference** (e.g. GRCh38). This needs no graph and runs in bonFIRE's **shared-reference mode** (see **Shared-reference mode** below). A standalone version of this case also exists: [fire_consensus_pipeline](https://github.com/StergachisLab/fire_consensus_pipeline). 
 
 (2) Compare the chromatin landscape between two haplotypes in a single sample, processed against its **own native diploid assembly**. We can perform this analysis for a single sample, or for a group of samples all processed against a common diploid assembly. These samples may be different tissues from one individual, different experimental conditions, etc. 
 
@@ -136,13 +136,52 @@ Fields to include: <br>
 
 **If you would like the pipeline to generate a graph, remove the "graph:" line from this config file and set the other graph parameters. make_graph_only can be True or False depending on whether you want your pipeline to continue with downstream consensus peak calling. If a graph is provided, the other graph parameters won't be used.**
 
+## Shared-reference mode
+
+Use this mode when every FIRE run was processed against the **same haploid reference** (e.g. GRCh38 or CHM13). Nothing needs to move between assemblies, so no graph is built or used: consensus peaks are called directly on the reference from all runs' peaks, and each run's coverage and FIRE coverage are read from its pileup at every consensus peak, overall and for each haplotype.
+
+A sample config and input file are in config/sample_configs/config_shared_ref.yaml and config/sample_configs/cons_peak_calling_shared_ref_input_sample.txt.
+
+**Config fields** <br>
+**output_dir**, **prefix**, **input_file**: as above <br>
+**shared_ref**: True <br>
+**main_reference_fasta**: the reference every run was processed against (gzipped or not). If it has no .fai index (or is gzipped), a copy or link is indexed in the output folder, so nothing is written next to it. <br>
+**ft_path**: optional, as above <br>
+Settings that only apply to runs on their own assemblies (graph, ft_param, vg_*, graph_*, split_graph, Peak_length_change_param, main_reference_name, the secondary reference) are ignored; any that are set are listed when the run starts.
+
+**Input file**: only two tab-separated columns are needed, **sample_name** and **path_to_fire_output_folder** (described above). Other columns are ignored, so an input file written for the graph mode also works. sample_name must be unique.
+
+**What it does**
+1. The runs' peaks are combined, and each gets a peak_id (chrom_start_end-sample_name). Duplicate peaks (same run and coordinates) are removed, and peaks on contigs that aren't in the reference are dropped and counted in the log. A run with no peaks on the reference stops the pipeline, since it was most likely processed against a different reference.
+2. Consensus peaks are called from all runs' peaks with `ft mock-fire` and `ft call-peaks`, as in the graph mode.
+3. For each run and consensus peak, one pileup position is chosen: the highest score, then the highest fire_coverage / coverage, then the highest fire_coverage, then the highest coverage. Its overall and haplotype values are reported, so both haplotypes are measured at the same position.
+4. Each run's own peaks are intersected with the consensus peaks, and each consensus peak's sequence is taken from the reference.
+
+**Outputs** (in [output_dir]/[prefix]/)
+
+**[prefix]_final_tbl_w_metadata.tsv.gz**: one row per run and consensus peak.
+- **sample_id**: the run's sample_name (one per run, not per haplotype)
+- **consensus_peak_id**, **cons_chr**, **cons_start**, **cons_end**: the consensus peak and its coordinates
+- **coverage**, **fire_coverage**, **score**, **fire_cov_OV_cov**: as in the graph mode's table. Where the run's pileup has no data at the consensus peak, coverage and fire_coverage are 0, score is -1 and fire_cov_OV_cov is NA.
+- **coverage_H1**, **fire_coverage_H1**, **score_H1**, **fire_cov_OV_cov_H1**, and the same for **H2**: the values for each haplotype at the same pileup position. NA for runs whose pileup has no haplotype columns (e.g. unphased runs).
+- **overlaps_original_called_peak**, **num_overlapping_orig_peaks**, **orig_peaks_overlapping_consensus**: as in the graph mode's table, from this run's own peaks.
+
+**[prefix]_consensus_peak_summary.tsv**: one row per consensus peak.
+- **consensus_peak_id**, **chr**, **start**, **end**
+- **chr_order**: the peak's position along its chromosome, 1 to the number of peaks on it
+- **seq**: the peak's sequence in the reference
+
+Also kept: [prefix]_Ref_shared_peaks.bed and _6col.bed (the consensus peaks), [prefix]_wPeakIDs.bed.gz (the runs' peaks), [prefix]_max_score_per_peak_all_samples.tsv and [prefix]_orig_called_peaks_intersect_consensus_peaks.bed (inputs to the final tables), [prefix]_Ref_chromosomes.txt and [prefix]_runs.txt, and logs/.
+
+The plotting script (see **Downstream analysis**) also reads these outputs; remove_single_sample_peaks has no effect for them, since every peak is in every run.
+
 ## Consensus Peak Calling Approach
 
 We begin by describing the simplest case, where all data is processed against a common haploid reference (see **Some common use cases for bonFIRE** above). The multi-assembly, graph-dependent approach builds upon the concepts illustrated below, while moving through different assembly spaces. 
 
 ### Consensus peak calling in a common haploid reference space
 
-**This simplest case is a variation on the bonFIRE approach but exists as a separate repo**: [fire_consensus_pipeline](https://github.com/StergachisLab/fire_consensus_pipeline)  
+**This simplest case runs in bonFIRE with `shared_ref: True`** (see **Shared-reference mode**). A standalone version also exists as a separate repo: [fire_consensus_pipeline](https://github.com/StergachisLab/fire_consensus_pipeline)  
 
 The consensus FIRE peak calling approach enables comparative analysis of Fiber-seq chromatin accessibility between Fiber-seq datasets, and is the recommended approach for comparing individual Fiber-seq FIRE datasets.
 
