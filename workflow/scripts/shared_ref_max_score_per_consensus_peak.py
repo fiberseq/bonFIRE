@@ -13,7 +13,9 @@ first row (the leftmost) stays. This is the same choice as in graph mode
 (260217_find_max_fire_score_per_consenses_peak.py). The haplotype values come from that same row, so
 both haplotypes are measured at the same position.
 
-Consensus peaks that no pileup row overlaps get score -1 and NA for everything else.
+Consensus peaks that no pileup row overlaps have no reads in this run: coverage and fire_coverage 0 and
+score -1 (FIRE's score where there are no FIRE reads), and the same for each haplotype if the pileup has
+haplotype columns (NA if it has none).
 
 usage: ... | shared_ref_max_score_per_consensus_peak.py consensus_peaks.bed sample_id output.tsv
 """
@@ -32,9 +34,13 @@ def rank(cov, fire_cov, score):
 
 def main(consensus_file, sample_id, output_file):
     best = {}
+    # whether the pileup has haplotype columns (they're NA when it doesn't)
+    has_haplotypes = False
     for line in sys.stdin:
         f = line.rstrip("\n").split("\t")
         values = f[3:12]
+        if values[3] != "NA":
+            has_haplotypes = True
         peak_id = f[-1]
         r = rank(int(values[0]), int(values[1]), float(values[2]))
         # strictly better only, so on a full tie the first (leftmost) row stays
@@ -51,7 +57,7 @@ def main(consensus_file, sample_id, output_file):
                 if peak_id in best:
                     values = best[peak_id][1]
                 else:
-                    values = ["NA", "NA", "-1"] + ["NA"] * 6
+                    values = ["0", "0", "-1"] + (["0", "0", "-1"] * 2 if has_haplotypes else ["NA"] * 6)
                 out.write("\t".join([sample_id, peak_id] + values) + "\n")
 
 

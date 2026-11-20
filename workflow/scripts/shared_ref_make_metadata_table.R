@@ -44,9 +44,10 @@ stopifnot(nrow(tbl) == length(runs) * nrow(cons), all(tbl$sample_id %in% runs))
 progress("adding coordinates and accessibility")
 m = match(tbl$consensus_peak_id, cons$consensus_peak_id)
 tbl[, `:=`(cons_chr = cons$chr[m], cons_start = cons$start[m], cons_end = cons$end[m])]
-tbl[, fire_cov_OV_cov := fire_coverage / coverage]
-tbl[, fire_cov_OV_cov_H1 := fire_coverage_H1 / coverage_H1]
-tbl[, fire_cov_OV_cov_H2 := fire_coverage_H2 / coverage_H2]
+## NA where there are no reads (coverage 0)
+tbl[, fire_cov_OV_cov := fifelse(coverage > 0, fire_coverage / coverage, NA_real_)]
+tbl[, fire_cov_OV_cov_H1 := fifelse(coverage_H1 > 0, fire_coverage_H1 / coverage_H1, NA_real_)]
+tbl[, fire_cov_OV_cov_H2 := fifelse(coverage_H2 > 0, fire_coverage_H2 / coverage_H2, NA_real_)]
 
 progress("adding original peak overlaps")
 ## each run's own original peaks: does one overlap the consensus peak, and how many separate ones
