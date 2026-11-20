@@ -10,12 +10,14 @@
 ##   prefix: start of the output file names
 ##   final_tbl: [prefix]_final_tbl_w_metadata.tsv.gz, or a subset of it
 ##   summary: [prefix]_consensus_peak_summary.tsv (or the processed one, or a subset); needs
-##            consensus_peak_id, chr, main_ref_start_<name>, main_ref_end_<name>, chr_slot, chr_order and at_end_of_chr
+##            consensus_peak_id, chr, main_ref_start_<name>, main_ref_end_<name>, chr_slot, chr_order and at_end_of_chr,
+##            or, from a shared-reference run, consensus_peak_id, chr, start, end and chr_order
 ##   intervals.bed: tab-separated, no header: chr, start, end, name, TSS (main reference coordinates; TSS can be NA,
 ##                  or several positions comma-separated, e.g. 2424,2343,6437, to outline each).
 ##                  The plot covers the main reference peaks overlapping the interval and every peak between them
 ##   coverage_cutoff: tiles with coverage below this are grey
-##   remove_single_sample_peaks: TRUE to drop peaks transferred to only one assembly
+##   remove_single_sample_peaks: TRUE to drop peaks transferred to only one assembly (in a shared-reference
+##                               run, where every peak is in every run: peaks called in only one run)
 ##   min_frac_actuation: optional (default 0.10); peaks whose highest fire_cov_OV_cov is below this are dropped
 ## Tiles are black where the peak didn't transfer to that assembly, and * marks more than one original peak.
 args <- commandArgs(trailingOnly = TRUE)
@@ -57,14 +59,24 @@ print("reading_in_peak_summary_table")
 peak_summary = as.data.frame(fread(summary_input, header = TRUE, sep = "\t", na.strings = "NA"))
 ## the main reference coordinates are main_ref_start_<name> / main_ref_end_<name> (CHM13_start / CHM13_end in
 ## summaries from older runs); they're called ref_start / ref_end here
+## a shared-reference summary has every peak on the reference: its start and end are the reference coordinates,
+## and with no non-reference peaks between them, peak k on a chromosome is in slot 2k and none is at the end
+shared_ref_summary = all(c("start", "end", "chr_order") %in% colnames(peak_summary)) && !("chr_slot" %in% colnames(peak_summary))
+if(shared_ref_summary){
+  peak_summary$chr_slot = 2L * peak_summary$chr_order
+  peak_summary$at_end_of_chr = FALSE
+}
 start_col = grep("^main_ref_start_", colnames(peak_summary), value = TRUE)
 end_col = grep("^main_ref_end_", colnames(peak_summary), value = TRUE)
-if(length(start_col) == 0 && "CHM13_start" %in% colnames(peak_summary)){
+if(shared_ref_summary){
+  start_col = "start"
+  end_col = "end"
+} else if(length(start_col) == 0 && "CHM13_start" %in% colnames(peak_summary)){
   start_col = "CHM13_start"
   end_col = "CHM13_end"
 }
 if(length(start_col) != 1 || length(end_col) != 1){
-  stop("the peak summary needs one main_ref_start_<name> and one main_ref_end_<name> column")
+  stop("the peak summary needs one main_ref_start_<name> and one main_ref_end_<name> column (or start and end, from a shared-reference run)")
 }
 colnames(peak_summary)[match(c(start_col, end_col), colnames(peak_summary))] = c("ref_start", "ref_end")
 needed = c("consensus_peak_id", "chr", "chr_slot", "chr_order", "at_end_of_chr")
@@ -77,11 +89,19 @@ print(paste0("peaks in the summary without a chromosome order (AMB): ", sum(is.n
 peak_summary = peak_summary[which(!is.na(peak_summary$chr_order)),]
 
 if(remove_single_sample_peaks == TRUE){
-  ## keep peaks transferred to more than one assembly
-  tbl = as.data.frame(tbl %>%
-                        group_by(consensus_peak_id) %>%
-                        filter(n_distinct(asm[!is.na(asm_chr)]) > 1) %>%
-                        ungroup())
+  if("asm" %in% colnames(tbl)){
+    ## keep peaks transferred to more than one assembly
+    tbl = as.data.frame(tbl %>%
+                          group_by(consensus_peak_id) %>%
+                          filter(n_distinct(asm[!is.na(asm_chr)]) > 1) %>%
+                          ungroup())
+  } else {
+    ## shared reference: every peak is in every run, so keep peaks originally called in more than one run
+    tbl = as.data.frame(tbl %>%
+                          group_by(consensus_peak_id) %>%
+                          filter(sum(overlaps_original_called_peak) > 1) %>%
+                          ungroup())
+  }
 }
 
 print("reading_in_bed_intervals_table")
