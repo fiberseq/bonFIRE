@@ -16,8 +16,8 @@
 ##                  or several positions comma-separated, e.g. 2424,2343,6437, to outline each).
 ##                  The plot covers the main reference peaks overlapping the interval and every peak between them
 ##   coverage_cutoff: tiles with coverage below this are grey
-##   remove_single_sample_peaks: TRUE to drop peaks transferred to only one assembly (in a shared-reference
-##                               run, where every peak is in every run: peaks called in only one run)
+##   remove_single_sample_peaks: TRUE to drop peaks transferred to only one assembly (ignored for a
+##                               shared-reference run, where every peak is in every run)
 ##   min_frac_actuation: optional (default 0.10); peaks whose highest fire_cov_OV_cov is below this are dropped
 ## Tiles are black where the peak didn't transfer to that assembly, and * marks more than one original peak.
 args <- commandArgs(trailingOnly = TRUE)
@@ -96,11 +96,8 @@ if(remove_single_sample_peaks == TRUE){
                           filter(n_distinct(asm[!is.na(asm_chr)]) > 1) %>%
                           ungroup())
   } else {
-    ## shared reference: every peak is in every run, so keep peaks originally called in more than one run
-    tbl = as.data.frame(tbl %>%
-                          group_by(consensus_peak_id) %>%
-                          filter(sum(overlaps_original_called_peak) > 1) %>%
-                          ungroup())
+    ## shared reference: every run is on the same reference, so every peak is in every run and none is removed
+    print("shared-reference run: remove_single_sample_peaks doesn't apply (every peak is in every run), so no peaks are removed")
   }
 }
 
