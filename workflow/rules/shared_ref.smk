@@ -186,8 +186,8 @@ rule get_consensus_peak_sequences:
     input:
         consensus_peaks=rules.call_consensus_peaks.output.ref_peaks_5col_w_peak_id,
         fasta=MAIN_REF_FASTA_PLAIN,
-        # a gzipped reference's decompressed copy is indexed when it's made; a plain one is indexed by bedtools if needed
-        fai=[f"{MAIN_REF_FASTA_PLAIN}.fai"] if MAIN_REF_FASTA.endswith(".gz") else []
+        # indexed when the copy in the output folder is made (prepare_main_ref_fasta); otherwise it already has an index
+        fai=[f"{MAIN_REF_FASTA_PLAIN}.fai"] if MAIN_REF_FASTA_PLAIN != MAIN_REF_FASTA else []
     output:
         seqs=temp(f"{global_output_dir}/{sample}/{sample}_consensus_peak_sequences.tsv")
     conda:

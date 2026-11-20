@@ -109,8 +109,10 @@ def write_tsv_if_changed(df, path):
     with open(path, "w") as f:
         f.write(new_contents)
 
-## tools that read sequence from the main reference by position need it uncompressed, so a gzipped one is decompressed first
-if MAIN_REF_FASTA.endswith(".gz"):
+## tools that read sequence from the main reference by position need it uncompressed and indexed (.fai). A
+## gzipped one is decompressed, and a plain one without an index is linked, into the output folder and indexed
+## there (so nothing is written next to the reference); an indexed plain one is used as is
+if MAIN_REF_FASTA.endswith(".gz") or not os.path.exists(f"{MAIN_REF_FASTA}.fai"):
     MAIN_REF_FASTA_PLAIN = f"{global_output_dir}/{sample}/{sample}_Ref.fa"
 else:
     MAIN_REF_FASTA_PLAIN = MAIN_REF_FASTA
@@ -141,8 +143,8 @@ rule combine_peaks:
                             "\t".join(fields[:3] + [sample_name]) + "\n"
                         )
 
-# gzipped main reference, decompressed for the tools that read it by position (only used when the fasta ends in .gz)
-rule decompress_main_ref_fasta:
+# the main reference, uncompressed and indexed in the output folder (only used when it's gzipped or has no index)
+rule prepare_main_ref_fasta:
     input:
         fasta=MAIN_REF_FASTA
     output:
@@ -152,11 +154,14 @@ rule decompress_main_ref_fasta:
     conda:
         "envs/env.yml"
     log:
-        f"{log_dir}/decompress_main_ref_fasta.log"
+        f"{log_dir}/prepare_main_ref_fasta.log"
     shell:
         """
         exec > {log} 2>&1
-        zcat {input.fasta} > {output.fasta}
+        case {input.fasta} in
+            *.gz) zcat {input.fasta} > {output.fasta} ;;
+            *) ln -sfn "$(readlink -f {input.fasta})" {output.fasta} ;;
+        esac
         samtools faidx {output.fasta}
         """
 
