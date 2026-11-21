@@ -105,7 +105,7 @@ The simplest case of bonFIRE takes as input Fiber-seq data from multiple samples
 (1) Identify a set of consensus peaks: genomic regions where at least one peak was called (using [sample].peaks.bed.gz) <br>
 (2) Evaluate chromatin accessibility at these consensus peaks in each sample, whether or not a peak was originally called in that sample. (using [sample].pileup.bed.gz)
 
-<img width="804" height="911" alt="github_figs-03" src="https://github.com/user-attachments/assets/4b05afe0-2880-483c-9277-66d9ebd2b4ef" />
+<img width="402" height="460" alt="github_figs-03" src="https://github.com/user-attachments/assets/4b05afe0-2880-483c-9277-66d9ebd2b4ef" />
 
 The output contains raw counts from the pileup, and thus a chromatin actuation score can be recalculated with filters specific to the whole group. This approach is thus effectively normalizes for read depth differences between samples (where a peak may be called in one sample and not the other simply due to read depth differences), and is preferable to simply looking for peak overlaps in the peak outputs of the two separate datasets. 
 
@@ -117,11 +117,23 @@ Note: This mode currently assumes that samples are processed against one or mult
 
 The multiple reference assembly mode conceptually parallels the common reference assembly approach described above, where a set of consensus peaks are first defined, and then raw chromatin accessibility values are pulled from each sample's FIRE output at those positions. However, a consensus peak no longer represents a static set of genomic coordinates in one assembly space; rather, it is a set of homologous loci across assemblies, associated with a single consensus peak label. To facilitate the identification of homologous regions, we first construct a pangenome graph of all input assemblies as well as one or two 'reference' assemblies, for easy downstream interpretation of data against annotations in those reference spaces. We can use these graphs to move features between any pair of assemblies in the graph. Defining consensus peaks involves progressively moving the set to natively-called FIRE peaks to shared assembly spaces, and defining consensus peaks within that shared coordinate system. Each consensus peak is ultimately transferred back through the graph to each native assembly, and natively measured chromatin accessibility data is pulled from that region. This process retains genomic loci that only exist in one or a subset of assemblies, as well as those ubiquitously present across the population. 
 
-<img width="1682" height="2449" alt="github_figs-06" src="https://github.com/user-attachments/assets/de343e71-d678-45d9-b5e0-96ca4bab883b" />
+<img width="1121" height="1633" alt="github_figs-06" src="https://github.com/user-attachments/assets/de343e71-d678-45d9-b5e0-96ca4bab883b" />
 
 
 
 ## Input files
+
+The main inputs to both bonFIRE modes are the single sample outputs of [FIRE](https://fiberseq.github.io/fire/run.html), generated using 'pixi run fire' (see **3.1 Running and installing** under the 3. FIRE on the left-hand side menu). Specifically, it will look for the *.peaks.bed.gz file and *.pileup.bed.gz file in the FIRE output folder indicated in the input file (described below). **Be sure that only one file in the folder provided has the suffixes above.**
+
+Both modes above take in an input file with sample information and a config.yaml. See sections below for mode-specific structure.
+
+### Common reference assembly inputs (simple)
+
+config.yaml:
+
+inputs.txt:
+
+### Multiple reference assemblies (pangenome-based)
 
 The bonFIRE pipeline has several modes:
 (1) Generate pangenome graph only (make_graph_only=True in the config file). The output pangenome graph automatically includes CHM13 & GRCh38, as well as all provided genomes (currently, only diploid genomes are supported as input, but the input can be easily hacked to work with haploid references as well). <br>
@@ -165,39 +177,6 @@ Fields to include: <br>
 
 **If you would like the pipeline to generate a graph, remove the "graph:" line from this config file and set the other graph parameters. make_graph_only can be True or False depending on whether you want your pipeline to continue with downstream consensus peak calling. If a graph is provided, the other graph parameters won't be used.**
 
-## Consensus Peak Calling Approach
-
-We begin by describing the simplest case, where all data is processed against a common haploid reference (see **Some common use cases for bonFIRE** above). The multi-assembly, graph-dependent approach builds upon the concepts illustrated below, while moving through different assembly spaces. 
-
-### Consensus peak calling in a common haploid reference space
-
-**This simplest case is a variation on the bonFIRE approach but exists as a separate repo**: [fire_consensus_pipeline](https://github.com/StergachisLab/fire_consensus_pipeline)  
-
-The consensus FIRE peak calling approach enables comparative analysis of Fiber-seq chromatin accessibility between Fiber-seq datasets, and is the recommended approach for comparing individual Fiber-seq FIRE datasets.
-
-The consensus peak calling approach has several steps. First, a set of 'consensus peaks' are generated using the individual Fiber-seq dataset FIRE peak calls. Second, the chromatin accessibility value at these 'consensus peaks' is quantified in each of the Fiber-seq datasets, enabling the direct comparison of chromatin accessibility at each position of interest. 
-
-Individual Fiber-seq dataset FIRE peak calls serve as inputs for consensus peak calling, where a 'consensus peak region' is called at any position where a FIRE peak was called in at least one sample. Where multiple samples have overlapping peaks, a single consensus peak region is defined, using the median start and end positions of the underlying peaks. 
-
-<img width="1021" height="377" alt="consensus_peak_calling_image1" src="https://github.com/user-attachments/assets/d9ccd9fc-473a-46aa-93bc-fd0d47886db2" />
-
-Once this set of consensus peak regions is defined, we pull raw coverage (number of reads) and FIRE coverage (number of reads with FIRE elements) at each consensus peak region for each sample, reporting the position with the maximum FIRE coverage if it differs across the length of the region.  
-
-The output is a table containing values shown below (see **Output** below for all column descriptions), containing these values for each sample at each consensus peak region. We can thus calculate a chromatin accessibility score, and define custom filters for samples and/or consensus peak regions based on minimum coverage, for example. Thus, peaks not called in some samples due to relatively low coverage, can be rescued with this approach, and chromatin accessibility can be compared quantitatively even at regions where a peak was not originally called in all samples. (**Outputs generated via the repo linked above may be slightly different than these**)
-
-<img width="774" height="284" alt="consensus_peak_calling_image2" src="https://github.com/user-attachments/assets/59320439-e7a8-47f2-bef6-4daf17227cc3" />
-
-### Consensus peak calling across multiple genome assemblies
-
-As with the above approach, the input for this pipeline are the peak outputs from the FIRE pipeline run separately on each sample. Even a single sample processed in its native diploid assembly space contains chromatin information for two haplotypes, and thus this approach can be used to compare the chromatin landscape between them. 
-
-Conceptually, this approach mirrors the single assembly approach, but contains additional steps to first move peaks called across different assemblies into a common assembly space via a pangenome graph, followed by calling 'consensus peaks' in that reference space. While the majority of peaks called across assembly spaces are able to be transferred to a common reference (in this case, CHM13), the subset will not. These are peaks in genomic regions which have no homology to CHM13 and thus cannot be represented there. However, these regions may be homologous across multiple other assemblies, and thus we don't want them dropping out of our comparative analysis. Thus, the remaining peaks are transferred to a new assembly, and 'consensus peaks' are defined as above from all peaks that were able to be transferred to this assembly. Because some peaks will still remain as untransferrable to either CHM13 or the new assembly, we iteratively move remaining peaks to other assemblies present in the graph, and call consensus peaks, until every starting peak has contributed to a 'consensus peak'. This process culminates with a set of consensus peaks regions -- a set of genomic chr:start-end intervals defined across multiple assembly spaces.
-
-As in the single reference approach above, we ultimately want to report raw coverage and FIRE coverage values, enabling us to calculate chromatin accessibility at each of these consensus peak regions for each sample. To accomplish this, we again use the pangenome graph to move the entire set of consensus peak regions back to each assembly. Using these assembly-specific coordinates, we can pull raw coverage and fire coverage data from the pileup.bed file generated during the original, sample-specific FIRE peak calling step. We merge these into a table containing chromatin accessibility value and metadata for each [sample haplotype]-[consensus peak region] pair, enabling direct chromatin comparison at any region where a peak was originally called in any sample.
-
-<img width="1057" height="495" alt="consensus_peak_calling_image3" src="https://github.com/user-attachments/assets/24d56462-88b8-48ca-ac8d-40cf38f131a1" />
-
-Many metadata columns are appended to this output to facilitate downstream analysis (see **Outputs**).
 
 ## Outputs
 
