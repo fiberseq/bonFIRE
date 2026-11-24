@@ -177,9 +177,13 @@ tbl_haplotype[, .N, by = .(hap_selective, seqs_match)][order(-hap_selective, seq
 ```
 
 To save the results: 
-(You may also want to save a new copy of tbl for downstream plotting if samples were filtered out)
 
 ```{r save, eval = FALSE}
 fwrite(cons_peak_summary, paste0(params$prefix, "_consensus_peak_summary_processed.tsv"), sep = "\t", na = "NA", quote = FALSE)
 fwrite(tbl_haplotype, paste0(params$prefix, "_hap_selectivity_info.tsv"), sep = "\t", na = "NA", quote = FALSE)
+```
+
+If you filtered out samples, save tbl as well:
+```{r save, eval = FALSE}
+fwrite(tbl, paste0(params$prefix, "_final_tbl_w_metadata_processed.tsv.gz"), sep = "\t", na = "NA", quote = FALSE)
 ```
