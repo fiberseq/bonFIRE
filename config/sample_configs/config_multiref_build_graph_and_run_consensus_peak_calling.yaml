@@ -1,4 +1,4 @@
-# Multiple reference assembly mode, building the graph and then calling consensus peaks. With no graph: line,
+# Multiple reference assembly mode, building the graph and then calling consensus peaks. With no "graph:" line,
 # the pipeline builds one ([output_dir]/[prefix]/graph/[prefix].full_all_chrs.gbz), which later runs can reuse.
 output_dir: /path/to/output_dir
 prefix: my_multiref_run
