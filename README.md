@@ -260,13 +260,14 @@ These are kept so the final tables can be regenerated, or to help with troublesh
 - **Inputs to the final metadata step**:
   - [prefix]_max_score_per_peak_all_samples.bed
   - [prefix]_combined_tranferred_peaks_all_samples.bed
-  - [prefix]_All_consensus_peaks_moved_to_GRCh38.bed
+  - [prefix]_All_consensus_peaks_moved_to_SecondaryRef.bed (only with a secondary reference)
   - [prefix]_orig_called_peaks_intersect_transferred_consensus_peaks.bed
   - [prefix]_all_orig_surjected_peaks_intersect_consensus_peaks.bed
   - [prefix]_graph_prefixed_input.tsv
-  - [prefix]_CHM13_chromosomes.txt
+  - [prefix]_sample_ids.tsv (each sample_id with its sample_name and graph name)
+  - [prefix]_Ref_chromosomes.txt
   - temp_previous_peak_files/[prefix]_previous_peaks_[assembly].tsv, one per assembly
-- **Consensus peaks**: [prefix]_CHM13_shared_peaks.bed and _6col.bed, [prefix]_NonCHM13_shared_peaks.bed and _6col.bed, and [prefix]_ALL_consensus_peaks_combined.bed
+- **Consensus peaks**: [prefix]_Ref_shared_peaks.bed and _6col.bed, [prefix]_NonRef_shared_peaks.bed and _6col.bed, and [prefix]_ALL_consensus_peaks_combined.bed
 - **Original peaks and where they were transferred**: [prefix]_wHapsAndPeakIDs.bed.gz, the [prefix]_wHapsAndPeakIDs_w_surject_info*.bed files, and [prefix]_list_of_surj_assemblies_in_order.txt (the order assemblies were tried in)
 - **Graph** (only if the pipeline built it): graph/[prefix].full.gbz, graph/[prefix].full_all_chrs.gbz (the graph used, with the contigs Minigraph-Cactus left out added back). Various other Minigraph-Cactus outputs also remain in graph folder.
 
