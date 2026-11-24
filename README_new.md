@@ -129,25 +129,45 @@ Both modes above take in an input.txt file with sample information and a config.
 
 ### Common reference assembly inputs (simple)
 
-config.yaml:
+#### config.yaml
+An example config can be found under FILL THIS IN.
+The **required** fields are listed below. Other fields (see Multiple reference assemblies) should in theory be ignored (though this is not fully tested).
 
-inputs.txt:
+**output_dir**: directory to write to, no trailing / <br>
+**prefix**: run prefix. A folder within output_dir will be generated with this name and all outputs will be written there. <br>
+**input_file**: Full path to inputs.txt (different name ok), described below <br>
+**ft_path:** path to the `ft` (fibertools) binary to use. If removed, the `ft` in the pipeline's environment is used. **Set this to a fibertools build from GitHub until the next release (beyond v0.13.0; see Installation, step 4)** <br>
+**shared_ref**: True <br>
+**main_reference_fasta**: reference against which samples are processed (gzipped or not). If it has no .fai index (or is gzipped), a copy or link is indexed in the output folder, so nothing is written next to it.
 
-### Multiple reference assemblies (pangenome-based)
+#### inputs.txt
 
-The bonFIRE pipeline has several modes:
-(1) Generate pangenome graph only (make_graph_only=True in the config file). The output pangenome graph automatically includes CHM13 & GRCh38, as well as all provided genomes (currently, only diploid genomes are supported as input, but the input can be easily hacked to work with haploid references as well). <br>
-(2) Generate pangenome graph and perform consensus peak calling <br>
-(3) Perform consensus peak calling with a provided graph (This is safest to do with a graph generated via this pipeline!)
+A sample input file for the single reference mode can be found here: <br>
+config/sample_configs/FILL THIS IN
 
-As input, option 2 and 3 require the outputs of [FIRE](https://fiberseq.github.io/fire/run.html), generated using 'pixi run fire' (see **3.1 Running and installing** under the 3. FIRE on the left-hand side menu). Specifically, it will look for the *.peaks.bed.gz file and *.pileup.bed.gz file in the FIRE output folder indicated in the input file (described below). **Be sure that only one file in the folder provided has the suffixes above.**
+It should include one line per FIRE run, with a unique 'sample_name' (first column) for each run. These will appear in the output file, so information that would be useful for downstream analysis can be helpful to include (e.g. if multiple FIRE runs on different tissues in the same individual are included, the sample name can be \[donor\]_\[tissue\].)
+
+Input file for this mode has just two columns (tab delimited): <br>
+**sample_name**: must be unique for each line. Can't contain '|' or ';' <br>
+**path_to_fire_output_folder**: full path to FIRE output folder for this sample, without a trailing /. It must contain exactly one *peaks.bed.gz and one *pileup.bed.gz file directly inside it (the pipeline stops and lists any folder that doesn't).
+
+### Multiple reference assemblies inputs (pangenome-based)
+
+Graph construction is the most time intensive part of this pipeline and **does not** need to be performed each time if a graph has already been constructed. One can use this pipeline to: <br>
+- Construct graph only (make_graph_only=True in the config file) <br>
+- Construct graph and perform consensus peak calling
+- Perform consensus peak calling with provided graph (This is safest to do with a graph generated via this pipeline!)
+  
+As with the common reference mode above, as input, option 2 and 3 require the outputs of [FIRE](https://fiberseq.github.io/fire/run.html), generated using 'pixi run fire' (see **3.1 Running and installing** under the 3. FIRE on the left-hand side menu). Specifically, it will look for the *.peaks.bed.gz file and *.pileup.bed.gz file in the FIRE output folder indicated in the input file (described below). **Be sure that only one file in the folder provided has the suffixes above.**
 
 bonFIRE requires an **input file** and a **config file**. 
 
 A sample input file can be found at: <br>
 config/sample_configs/cons_peak_calling_new_input_multi-sample.txt
 
-It should include one line per FIRE run, with a unique 'sample_name' (first column) for each run. These will appear in the output file, so information that would be useful for downstream analysis can be helpful to include (e.g. if multiple FIRE runs on different tissues in the same individual are included, the sample name can be \[donor\]_\[tissue\].)
+For this mode, bonFIRE expects that mapping and FIRE has been run against a **diploid** assembly. Downstream, each haplotype will be treated as a separate entity, but the pipeline will take care of splitting the peaks associated with each haplotype for you, based on haplotype-specific subtags you provide below.
+
+The input file with this include one line per FIRE run, with a unique 'sample_name' (first column) for each run. These will appear in the output file, so information that would be useful for downstream analysis can be helpful to include (e.g. if multiple FIRE runs on different tissues in the same individual are included, the sample name can be \[donor\]_\[tissue\].)
 
 Input file columns (tab delimited): <br>
 **sample_name**: must be unique for each line. Can't contain '|' or ';'. It may be useful for downstream analysis to include any associated info (e.g. tissue, condition, etc.) in this name for parsing in downstream steps. This name will not be used in the graph construction step. <br>
@@ -155,6 +175,11 @@ Input file columns (tab delimited): <br>
 **hap1_orig_subtag** & **hap2_orig_subtag**: This is any substring that can be used to differentiate hap1 chromosome names from hap2 chromosome names. These can be found anywhere in the chromosome name. (e.g. h1/h2, #1#/#2#, MATERNAL/PATERNAL, etc.) <br>
 **hap1_in_graph** & **hap2_in_graph**: These are the prefixes used for each haplotype in the graph. I commonly use \[donor-id\]_1 and \[donor-id\]_2. ** If multiple lines of this input file are associated with the same assembly (e.g. multiple tissue samples per donor), these values should be identical in those lines. This way, each unique assembly will only appear in the graph once. <br>
 **hap1_fasta_path** & **hap2_fasta_path**: path to hap1 and hap2 assembly fasta files. Make sure unassigned contigs are not included in these files, and all contigs that are included can be distinguished by **hap1_orig_subtag** & **hap2_orig_subtag**. Lines that share an assembly must have the exact same path (not just an identical copy of the file); otherwise that assembly is added to the graph more than once.
+
+
+
+
+
 
 A sample config can be found in config/sample_configs/config_graphProvided.yaml
 
