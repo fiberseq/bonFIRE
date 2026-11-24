@@ -1,5 +1,7 @@
 # Multiple reference assembly mode, building the graph only (no consensus peak calling). The input file only
-# needs one line per assembly, and path_to_fire_output_folder can be NA. The graph is written to
+# needs one line per assembly, but can include multiple lines with different values in sample_name which share 
+#a reference (e.g. two tissue in one individual). If all other values are identical, the paths will not be included 
+#in the graph more than once. The graph is written to
 # [output_dir]/[prefix]/graph/[prefix].full_all_chrs.gbz; give that path as graph: in later runs.
 output_dir: /path/to/output_dir
 prefix: my_graph
