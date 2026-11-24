@@ -130,7 +130,7 @@ Both modes above take in an input.txt file with sample information and a config.
 ### Shared reference assembly inputs
 
 #### config.yaml
-An example config can be found under FILL THIS IN.
+An example config can be found under **config/sample_configs/config_shared_ref.yaml**.
 The **required** fields are listed below. Other fields (see Multiple reference assemblies) should in theory be ignored (though this is not fully tested).
 
 **output_dir**: directory to write to, no trailing / <br>
@@ -143,7 +143,7 @@ The **required** fields are listed below. Other fields (see Multiple reference a
 #### inputs.txt
 
 A sample input file for the single reference mode can be found here: <br>
-config/sample_configs/FILL THIS IN
+config/sample_configs/input_shared_ref.txt
 
 It should include one line per FIRE run, with a unique 'sample_name' (first column) for each run. These will appear in the output file, so information that would be useful for downstream analysis can be helpful to include (e.g. if multiple FIRE runs on different tissues in the same individual are included, the sample name can be \[donor\]_\[tissue\].)
 
@@ -190,8 +190,9 @@ As with the common reference mode above, as input, option 2 and 3 require the ou
 
 bonFIRE requires an **input file** and a **config file**. 
 
-A sample input file can be found at: <br>
-config/sample_configs/cons_peak_calling_new_input_multi-sample.txt
+A sample **input files** can be found here. They can be identical, except for an NA in the second column instead of a FIRE output. For graph_only mode, you can also include just one line per assembly, but this isn't strictly necessary. Lines with different sample_name but identical values in all other columns will only produce two graph paths (one per haplotype). sample_name is not used in graph construction -- halotypes will be denoted by values in hap1_in_graph/hap2_in_graph: <br>
+config/sample_configs/input_multiref.txt 
+config/sample_configs/input_multiref_graph_only.txt
 
 For this mode, bonFIRE expects that mapping and FIRE has been run against a **diploid** assembly. Downstream, each haplotype will be treated as a separate entity, but the pipeline will take care of splitting the peaks associated with each haplotype for you, based on haplotype-specific subtags you provide below.
 
@@ -204,14 +205,19 @@ Input file columns (tab delimited): <br>
 **hap1_in_graph** & **hap2_in_graph**: These are the prefixes used for each haplotype in the graph. I commonly use \[donor-id\]_1 and \[donor-id\]_2. ** If multiple lines of this input file are associated with the same assembly (e.g. multiple tissue samples per donor), these values should be identical in those lines. This way, each unique assembly will only appear in the graph once. <br>
 **hap1_fasta_path** & **hap2_fasta_path**: path to hap1 and hap2 assembly fasta files. Make sure unassigned contigs are not included in these files, and all contigs that are included can be distinguished by **hap1_orig_subtag** & **hap2_orig_subtag**. Lines that share an assembly must have the exact same path (not just an identical copy of the file); otherwise that assembly is added to the graph more than once.
 
-A sample config can be found in config/sample_configs/config_graphProvided.yaml <br>
+Sample **config.yaml** files can be found here: <br>
+config/sample_configs/config_multiref_graph_only.yaml <br>
+config/sample_configs/config_multiref_graph_provided.yaml <br>
+config/sample_configs/config_multiref_build_graph_and_run_consensus_peak_calling.yaml
+
+
 Notes:
 - if generating graph only, set **make_graph_only: True** and remove the **graph:** line
 - If using existing graph generated via a previous run, add full path to **graph:**, using the version ending in *.full_all_chrs.gbz
 - **make_graph_only: False** plus setting other graph parameters will run both graph building and consensus peak calling
 - By default, the graph includes one or two haploid reference genomes (main and secondary below). The main reference is used as illustrated in the figure above (as CHM13 is there). If an optional secondary reference is added, the coordinates for all consensus peaks in that reference space will be returned as additional columns in the consensus peak summary output. 
 
-Fields to include: <br>
+Fields in config.yaml: <br>
 **output_dir**: directory to write to, no trailing / <br>
 **prefix**: run prefix. A folder within output_dir will be generated with this name and all outputs will be written there. <br>
 **input_file**: Full path to inputs.txt (different name ok), described below <br>
@@ -369,7 +375,7 @@ This script takes in a genomic interval or set of genomic intervals and generate
 - **prefix**: also whatever you want. Only used for output file name
 - **final_tbl_w_metadata**: main output from consensus peak calling pipeline. Can used processed version from the downstream analysis script above.
 - **consensus_peak_summary**: other main output from consensus peak calling pipeline. Can used processed version from the downstream analysis script above.
-- **intervals.bed**: denotes the intervals to plot **in main reference coordinates**. See sample input file in FILL THIS IN. This is a tab-delimited file with columns:
+- **intervals.bed**: denotes the intervals to plot **in main reference coordinates**. See sample input file example_data/HPRC_HLA_example_intervals.bed. This is a tab-delimited file with columns:
 chr, start, end, name, and TSS (currently no header, but should change this)
 name: a name for your interval (e.g. gene name); these are useful when multiple plots are being generated of different intervals.
 TSS: Optional (NA if not providing). This is a single genomic coordinate within the region provided (e.g. TSS position) or comma-separate list of coordinates (no spaces). If this coordinate falls within in consensus peak, that peak will be marked with a heavy black outline.
