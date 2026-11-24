@@ -2,7 +2,7 @@
 
 bonFIRE is a toolkit designed to simplify comparative analysis of Fiber-seq data across samples as well as enable **direct comparison of Fiber-seq data processed against multiple distinct genome assemblies.**
 
-The input to bonFIRE is one or several [FIRE](https://fiberseq.github.io/fire/run.html) runs. See **Input files** for more information on generating these.
+The input to bonFIRE is one or several [FIRE](https://fiberseq.github.io/fire/run.html) runs. See **Shared reference assembly (simple) mode: inputs and outputs** and **Multiple reference assembly mode: inputs and outputs** for more information on generating these.
 
 ### Some common use cases for bonFIRE are:
 
@@ -97,7 +97,7 @@ bonFIRE is a computational tool designed to enable direct comparative analysis b
 
 See "**bonFIRE with shared reference assembly**" below for further details on running this tool with Fiber-seq datasets measured in a common (usually haploid) reference assembly, and "**bonFIRE with multiple reference assemblies (pangenome-based)**" for running bonFIRE on samples processed against different assemblies. 
 
-Note, for a sample (or set of samples) processed against one diploid reference assembly, the pangeome-based mode allows us to compare not just between samples, but across homologous regions between the two haplotypes in a single sample. Thus, it is recommended that the multiple reference mode be used for this application.
+Note, for a sample (or set of samples) processed against one diploid reference assembly, the pangenome-based mode allows us to compare not just between samples, but across homologous regions between the two haplotypes in a single sample. Thus, it is recommended that the multiple reference mode be used for this application.
 
 ### bonFIRE with shared reference assembly
 
@@ -121,7 +121,7 @@ The multiple reference assembly mode conceptually parallels the common reference
 
 
 
-## Shared reference assembly (simple) mode inputs and outputs
+## Shared reference assembly (simple) mode: inputs and outputs
 
 The main inputs to both bonFIRE modes are the single sample outputs of [FIRE](https://fiberseq.github.io/fire/run.html), generated using 'pixi run fire' (see **3.1 Running and installing** under the 3. FIRE on the left-hand side menu). Specifically, it will look for the *.peaks.bed.gz file and *.pileup.bed.gz file in the FIRE output folder indicated in the input file (described below). **Be sure that only one file in the folder provided has the suffixes above.**
 
@@ -154,7 +154,7 @@ Input file for this mode has just two columns (tab delimited): <br>
 ### Shared reference assembly outputs (simple)
 (in [output_dir]/[prefix]/)
 
-- **[prefix]_final_tbl_w_metadata.tsv.gz**: one row per run and consensus peak.
+**[prefix]_final_tbl_w_metadata.tsv.gz**: one row per run and consensus peak.
 - **sample_id**: the run's sample_name
 - **consensus_peak_id**, **cons_chr**, **cons_start**, **cons_end**: the consensus peak and its coordinates
 - **coverage**: number of reads overlapping this consensus peak region at the point of maximum accessibility 
@@ -162,11 +162,10 @@ Input file for this mode has just two columns (tab delimited): <br>
 - **score**:	an accessibility score at this point calculated during original FIRE peak calling and defined [here](https://fiberseq.github.io/fire/methods/aggregation.html). I rarely use this column in downstream analyses, instead focusing on the raw fire_coverage/coverage calculation (in the fire_cov_OV_cov).
 - **fire_cov_OV_cov**: raw accessibility value calculated as fire_coverage/coverage. Where the run's pileup has no data at the consensus peak, coverage and fire_coverage are 0, score is -1 and fire_cov_OV_cov is NA.
 - **coverage_H1**, **fire_coverage_H1**, **score_H1**, **fire_cov_OV_cov_H1**, and the same for **H2**: the values for each haplotype at the same pileup position. NA for runs whose pileup has no haplotype columns (e.g. unphased runs).
-- **overlaps_original_called_peak**, **num_overlapping_orig_peaks**, **orig_peaks_overlapping_consensus**: as in the graph mode's table, from this run's own peaks.
 - **overlaps_original_called_peak**: TRUE if there was at least one peak overlapping this consensus peak location in the original FIRE dataset. This information should be used with caution, as differences in coverage between samples can impact whether a peak rose above the FDR threshold in the original FIRE calling scheme.
-- **num_overlapping_orig_peaks**: (Probably not useful) The number of originally called FIRE peaks that overlap this consensus peak region. A relic from multi-reference mode and probably not useful here. Filtering of overlapping peaks occurs here.
+- **num_overlapping_orig_peaks**: (Probably not useful) The number of originally called FIRE peaks that overlap this consensus peak region. A relic from multi-reference mode and probably not useful here.
 - **orig_peaks_overlapping_consensus**: (Probably not useful) Positions of originally called peaks which overlap this consensus peak region, each as chrom_start_end-[sample_name] and separated by commas. *This set is NOT filtered for very nearby peaks as is done for calculating num_overlapping_orig_peaks.
-
+  
 **[prefix]_consensus_peak_summary.tsv**: one row per consensus peak.
 - **consensus_peak_id**, **chr**, **start**, **end**
 - **chr_order**: the peak's position along its chromosome, 1 to the number of peaks on it
@@ -190,13 +189,13 @@ As with the common reference mode above, as input, option 2 and 3 require the ou
 
 bonFIRE requires an **input file** and a **config file**. 
 
-A sample **input files** can be found here. They can be identical, except for an NA in the second column instead of a FIRE output. For graph_only mode, you can also include just one line per assembly, but this isn't strictly necessary. Lines with different sample_name but identical values in all other columns will only produce two graph paths (one per haplotype). sample_name is not used in graph construction -- halotypes will be denoted by values in hap1_in_graph/hap2_in_graph: <br>
+Sample **input files** can be found here. They can be identical, except for an NA in the second column instead of a FIRE output. For graph_only mode, you can also include just one line per assembly, but this isn't strictly necessary. Lines with different sample_name but identical values in all other columns will only produce two graph paths (one per haplotype). sample_name is not used in graph construction -- haplotypes will be denoted by values in hap1_in_graph/hap2_in_graph: <br>
 config/sample_configs/input_multiref.txt 
 config/sample_configs/input_multiref_graph_only.txt
 
 For this mode, bonFIRE expects that mapping and FIRE has been run against a **diploid** assembly. Downstream, each haplotype will be treated as a separate entity, but the pipeline will take care of splitting the peaks associated with each haplotype for you, based on haplotype-specific subtags you provide below.
 
-The input file with this include one line per FIRE run, with a unique 'sample_name' (first column) for each run. These will appear in the output file, so information that would be useful for downstream analysis can be helpful to include (e.g. if multiple FIRE runs on different tissues in the same individual are included, the sample name can be \[donor\]_\[tissue\].)
+The input file for this mode include one line per FIRE run, with a unique 'sample_name' (first column) for each run. These will appear in the output file, so information that would be useful for downstream analysis can be helpful to include (e.g. if multiple FIRE runs on different tissues in the same individual are included, the sample name can be \[donor\]_\[tissue\].)
 
 Input file columns (tab delimited): <br>
 **sample_name**: must be unique for each line. Can't contain '|' or ';'. It may be useful for downstream analysis to include any associated info (e.g. tissue, condition, etc.) in this name for parsing in downstream steps. This name will not be used in the graph construction step. <br>
@@ -222,12 +221,12 @@ Fields in config.yaml: <br>
 **prefix**: run prefix. A folder within output_dir will be generated with this name and all outputs will be written there. <br>
 **input_file**: Full path to inputs.txt (different name ok), described below <br>
 **ft_path:** path to the `ft` (fibertools) binary to use. If removed, the `ft` in the pipeline's environment is used. **Set this to a fibertools build from GitHub until the next release (beyond v0.13.0; see Installation, step 4)** <br>                                       
-**graph**: path to graph if one has already been generated. If not, remove this line, and a graph will be generated for you. A provided graph must contain every contig in the input fastas, including those which do not align during graph building. This pipeline adds them back into the graph file to generate graph/[prefix].full_all_chrs.gbz; use this file rather than [prefix].full.gbz. Else, downstream steps may fail (e.g.`vg inject` fails with "alignment references path not present in graph".) <br>
-**main_reference_fasta**: Path to the main reference fasta (haploid; gzipped or not), e.g. CHM13. This reference will serve as the graph scaffold.
-**main_reference_name**: e.g. CHM13. This name will be used as a path name in the pangenome graph, and cannot be a substring of hap1_in_graph, hap2_in_graph, hap1_orig_subtag, hap2_orig_subtag from the input file above. Letters, numbers and _ only.
-**secondary_reference_fasta**: Optional. Path to a second haploid reference fasta, e.g. GRCh38. It isn't used in consensus peak calling; the pipeline outputs each consensus peak's coordinates on it, which can be useful for annotations defined in that reference. Remove this and secondary_reference_name to skip it.
-**secondary_reference_name**: e.g. GRCh38. Same rules as main_reference_name.
-(Older configs with CHM13_fasta_path / hg38_fasta_path still work, as references named CHM13 and GRCh38.)
+**graph**: path to graph if one has already been generated. If not, remove this line, and a graph will be generated for you. A provided graph must contain every contig in the input fastas, including those which do not align during graph building. This pipeline adds them back into the graph file to generate [output_dir]/[prefix]/graph/[prefix].full_all_chrs.gbz; use this file rather than [prefix].full.gbz. Else, downstream steps may fail (e.g.`vg inject` fails with "alignment references path not present in graph".) <br>
+**main_reference_fasta**: Path to the main reference fasta (haploid; gzipped or not), e.g. CHM13. This reference will serve as the graph scaffold. <br>
+**main_reference_name**: e.g. CHM13. This name will be used as a path name in the pangenome graph, and cannot be a substring of hap1_in_graph, hap2_in_graph, hap1_orig_subtag, hap2_orig_subtag from the input file above. Letters, numbers and _ only. <br>
+**secondary_reference_fasta**: Optional. Path to a second haploid reference fasta, e.g. GRCh38. It isn't used in consensus peak calling; the pipeline outputs each consensus peak's coordinates on it, which can be useful for annotations defined in that reference. Remove this and secondary_reference_name to skip it. <br>
+**secondary_reference_name**: e.g. GRCh38. Same rules as main_reference_name. <br>
+(Older configs with CHM13_fasta_path / hg38_fasta_path still work, as references named CHM13 and GRCh38.) <br>
 **ft_param**: Default 1000. Peaks are 'strung together' into longer sequences to aid surjection onto the correct path. Keep as is for most cases. <br>
 **Peak_length_change_param**: 1 (Keep as is). If a peak length changes by more than 100% after surjection, it will be considered not surjected to that assembly. <br>
 **make_graph_only**: Default False. Make True if you'd like to make the graph only, without consensus peak calling. <br>
@@ -358,7 +357,7 @@ rmarkdown::render("docs/vignettes/vignette_process_main_output_and_consensus_pea
       params = list(input_dir = "/path/to/output_dir/prefix/", prefix = "prefix"))
 ```
 
-To try it on the example data (see **Example data** above), use `params = list(input_dir = "../../example_data/", prefix = "HPRC_HLA_example")`. The vignette's code runs from docs/vignettes/, so a relative input_dir is relative to that folder (or give a full path). Rendering needs pandoc, which RStudio includes.
+To try it on the example data use `params = list(input_dir = "../../example_data/", prefix = "HPRC_HLA_example")`. The vignette's code runs from docs/vignettes/, so a relative input_dir is relative to that folder (or give a full path). Rendering needs pandoc, which RStudio includes.
 
 This pipeline can be run from the command line as shown below, **but I do not recommend this for new datasets** as parameter choices are dataset specific. Instead, use the vignette above to run script step by step, and determine appropriate parameters based on the explanations there.
 
