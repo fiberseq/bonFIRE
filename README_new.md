@@ -338,6 +338,8 @@ This can be useful in order to determine whether differences in accessibility ar
 
 ## Downstream analysis
 
+(example_data/ has a small subset of a multiple reference assembly run (CHM13 main reference, GRCh38 secondary reference) on 45 HPRC Fiber-seq runs: 100 consensus peaks around HLA-DRB1 and HLA-DQB1, for all 90 sample haplotypes, with the prefix HPRC_HLA_example. Use it to try the scripts and vignette below without running the pipeline; example_data/README.md has the commands.)
+
 There are several common next steps we may want to perform with these outputs:
 - Call chromatin accessibility peaks
 - Identify haplotype-selective peaks
@@ -347,12 +349,16 @@ See sections below for tools to do these. The scripts in **downstream/** start f
 
 ### Calling peaks and haplotype-selective peaks
 
-[docs/vignettes/downstream_vignette.Rmd](docs/vignettes/vignette_process_main_output_and_consensus_peak_summary.Rmd) walks through the steps of process_consensus_peak_output.R with explanations, with each cutoff as a parameter. Render it with your own outputs:
+**This script is written for processing multi-reference runs and will not work for the shared reference mode as is. However, peak calling and hap selectivity filters from this script (and described below) can be applied to shared reference runs.**
+
+[docs/vignettes/vignette_process_main_output_and_consensus_peak_summary.Rmd](docs/vignettes/vignette_process_main_output_and_consensus_peak_summary.Rmd) walks through the steps of process_consensus_peak_output.R with explanations, with each cutoff as a parameter. Render it with your own outputs:                                          
 
 ```r
-rmarkdown::render("docs/vignettes/downstream_vignette.Rmd",
-                  params = list(input_dir = "/path/to/output_dir/prefix/", prefix = "prefix"))
+rmarkdown::render("docs/vignettes/vignette_process_main_output_and_consensus_peak_summary.Rmd",
+      params = list(input_dir = "/path/to/output_dir/prefix/", prefix = "prefix"))
 ```
+
+To try it on the example data (see **Example data** above), use `params = list(input_dir = "../../example_data/", prefix = "HPRC_HLA_example")`. The vignette's code runs from docs/vignettes/, so a relative input_dir is relative to that folder (or give a full path). Rendering needs pandoc, which RStudio includes.
 
 This pipeline can be run from the command line as shown below, **but I do not recommend this for new datasets** as parameter choices are dataset specific. Instead, use the vignette above to run script step by step, and determine appropriate parameters based on the explanations there.
 
