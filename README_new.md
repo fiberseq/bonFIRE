@@ -332,47 +332,64 @@ This can be useful in order to determine whether differences in accessibility ar
 
 ## Downstream analysis
 
-This section contains two downstream analysis tools:
+There are several common next steps we may want to perform with these outputs:
+- Call chromatin accessibility peaks
+- Identify haplotype-selective peaks
+- Generate a matrix plot of chromatin accessibility for all peaks within a genomic region for all samples, similar to the one above.
 
-
-
-
-The scripts in **downstream/** start from the pipeline outputs. They need R with data.table, Biostrings and ggplot2 (plus dplyr and tidyr for plotting); the pipeline's R environment (workflow/envs/R_env.yml) has them.
+See sections below for tools to do these. The scripts in **downstream/** start from the pipeline outputs. They need R with data.table, Biostrings and ggplot2 (plus dplyr and tidyr for plotting); the pipeline's R environment (workflow/envs/R_env.yml) has them.
 
 ### Calling peaks and haplotype-selective peaks
 
-This pipeline can be run from the command line as shown below, **but I do not recommend this for new datasets** as parameter choices are dataset specific. The vignette below describes where parameters can be modified and why.
-
-```bash
-Rscript downstream/process_consensus_peak_output.R input_dir output_dir prefix [exclude_runs]
-```
-
-**input_dir** is the pipeline's [output_dir]/[prefix]/. **exclude_runs** is optional: a comma-separated list, and any sample_id containing one of them is left out. One can choose to do this if a sample  . The cutoffs are set at the top of the script:
-
-- By default, a consensus peak is a **peak** (accessible chromatin) in a sample haplotype if fire_coverage ≥ 4 and fire_cov_OV_cov ≥ 0.2. Consensus peaks that are a peak in no sample haplotype are dropped.
-- A peak is **tested** for haplotype selectivity in a run if both haplotypes have coverage ≥ 10 and their fire_cov_OV_cov differ by ≥ 0.25. Tested peaks are compared with a Fisher's exact test (FIRE vs. non-FIRE reads on each haplotype) and are called **haplotype-selective** via this nominally significant value. Only autosomal peaks are tested (not chrX, chrY, chrM or AMB).
-- **seqs_match** is TRUE if the peak's sequence is the same on both haplotypes (or the reverse complement), so a haplotype-selective peak may be driven by the sequence change if FALSE.
-
-Outputs, in output_dir:
-
-- **[prefix]_consensus_peak_summary_processed.tsv**: the consensus peak summary for the peaks kept, with num_sample_haps_with_peak (sample haplotypes it is a peak in), num_asms_with_peak (assembly haplotypes it is a peak in; differs from the previous column only when an assembly has more than one run), num_asms_with_genomic_location (assembly haplotypes it could be transferred to) and autosomal
-- **[prefix]_hap_selectivity_info.tsv**: one row per autosomal peak and run, with the two haplotypes' coverage, fire_coverage and fire_cov_OV_cov (_1 and _2), nonfire_1/2, abs_hap_diff, tested, fisher_p, fisher_fdr (NA if not tested), hap_selective and seqs_match (NA without a sequence on both haplotypes)
-
-Because the FDR is over every run together, a run with much higher coverage has more power and can account for many of the calls.
-
-### Plotting regions
-
-```bash
-Rscript downstream/plot_consensus_peaks_by_interval.R output_dir prefix final_tbl summary intervals.bed coverage_cutoff remove_single_sample_peaks [min_frac_actuation]
-```
-
-For each interval in a bed file (CHM13 coordinates; columns chr, start, end, name, and TSS positions to outline, comma-separated, or NA; no header), this plots fire_cov_OV_cov for every sample haplotype and consensus peak from the first CHM13 peak in the interval to the last, with the non-reference peaks between them, in chr_order. It makes two plots per interval, one with samples in name order and one with samples clustered by their accessibility and missing peaks (_clustered.png), and writes the plotted rows as a table. **final_tbl** and **summary** can be subsets of [prefix]_final_tbl_w_metadata.tsv.gz and the consensus peak summary (e.g. to some samples). See the top of the script for the other arguments.
-
-### Vignette
-
-[docs/vignettes/downstream_vignette.Rmd](docs/vignettes/vignette_process_main_output_and_consensus_peak_summary.Rmd) walks through the steps of process_consensus_peak_output.R with explanations, with each cutoff as a parameter, and shows how chr_order is used to pull out a region. Render it with your own outputs:
+[docs/vignettes/downstream_vignette.Rmd](docs/vignettes/vignette_process_main_output_and_consensus_peak_summary.Rmd) walks through the steps of process_consensus_peak_output.R with explanations, with each cutoff as a parameter. Render it with your own outputs:
 
 ```r
 rmarkdown::render("docs/vignettes/downstream_vignette.Rmd",
                   params = list(input_dir = "/path/to/output_dir/prefix/", prefix = "prefix"))
 ```
+
+This pipeline can be run from the command line as shown below, **but I do not recommend this for new datasets** as parameter choices are dataset specific. Instead, use the vignette above to run script step by step, and determine appropriate parameters based on the explanations there.
+
+```bash
+Rscript downstream/process_consensus_peak_output.R input_dir output_dir prefix [exclude_runs]
+```
+**input_dir** is the pipeline's [output_dir]/[prefix]/. **exclude_runs** is optional: a comma-separated list, and any sample_id containing one of them is left out. The cutoffs are set at the top of the script:
+
+- By default, a consensus peak is a **peak** (accessible chromatin) in a sample haplotype if fire_coverage ≥ 4 and fire_cov_OV_cov ≥ 0.2. Consensus peaks that are a peak in no sample haplotype are dropped.
+- A peak is **tested** for haplotype selectivity in a run if both haplotypes have coverage ≥ 10 and their fire_cov_OV_cov differ by ≥ 0.25. Tested peaks are compared with a Fisher's exact test (FIRE vs. non-FIRE reads on each haplotype) and are called **haplotype-selective** via this nominally significant value. Only autosomal peaks are tested (not chrX, chrY, chrM or AMB).
+- **seqs_match** is TRUE if the peak's sequence is the same on both haplotypes (or the reverse complement), so a haplotype-selective peak may be driven by the sequence change if FALSE.
+
+### Plotting chromatin actuation matrix
+
+This script takes in a genomic interval or set of genomic intervals and generates plots with all intervening peaks as columns, all samples haplotypes as rows, with box color denoting relative fire_cov_OV_cov. Because we have ordered non-reference peaks relative to reference peaks in the consensus peak summary file, non-reference peaks will also appear on this plot if they exist in the interval provided. It outputs two plots per interval, one with samples in name order and one with samples clustered by their accessibility and missing peaks (_clustered.png)
+
+#### Inputs:
+
+- **output_dir**: whatever you want, with trailing slash
+- **prefix**: also whatever you want. Only used for output file name
+- **final_tbl_w_metadata**: main output from consensus peak calling pipeline. Can used processed version from the downstream analysis script above.
+- **consensus_peak_summary**: other main output from consensus peak calling pipeline. Can used processed version from the downstream analysis script above.
+- **intervals.bed**: denotes the intervals to plot **in main reference coordinates**. See sample input file in FILL THIS IN. This is a tab-delimited file with columns:
+chr, start, end, name, and TSS (currently no header, but should change this)
+name: a name for your interval (e.g. gene name); these are useful when multiple plots are being generated of different intervals.
+TSS: Optional (NA if not providing). This is a single genomic coordinate within the region provided (e.g. TSS position) or comma-separate list of coordinates (no spaces). If this coordinate falls within in consensus peak, that peak will be marked with a heavy black outline.
+- **coverage_cutoff**: I default to 6 here. Tiles with a coverage below this are gray, to indicate that the actuation information at that position is likely noisy.
+- **remove_single_sample_peaks**: (TRUE/FALSE) If a **genomic region** where a consensus peak is called is only present in one sample, all other boxes in that column will be black. You can choose to remove these columns. (Note, this is NOT the same as the case where a peak is called in just one sample, but homologous genomic loci without peaks exists in other sample; these will not be removed).
+- **min_frac_actuation**: Optional. I default to 0.1. This removes any column where the highest chromatin actuation is below this value.
+
+```bash
+Rscript downstream/plot_consensus_peaks_by_interval.R output_dir prefix final_tbl_w_metadata consensus_peak_summary intervals.bed coverage_cutoff remove_single_sample_peaks [min_frac_actuation]
+```
+
+#### Outputs:
+Two plots per input interval (one clustered, one not) are generated via this script, as well as the data subset from which the plot was generated. 
+
+Interpreting the plot:
+- **Purple**: chromatin accessibility. Darker = more accessible.
+- **Gray**: Not enough data to evaluate (Total coverage at this site is below the coverage_cutoff parameter)
+- **Black** consensus peak cannot be transferred to this assembly. This means a homologous genomic region doesn't exist in this assembly.
+- **Black outline around column**: User provided coordinate falls within this peak. See TSS column explanation above
+- **Star in box**: This indicates that more than one distinct original peak in this sample overlaps this consensus peak when transferred to the consensus assembly (there is a number >1 in the **num_overlapping_orig_peaks** column in the main output -- see how these are filtered above). This **may** indicate copy number differences. These are returned purely to alert us to locations where we need to take a closer look, as chromatin actuation values may not actually represent consistent copies between samples.
+
+
+
