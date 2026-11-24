@@ -121,13 +121,13 @@ The multiple reference assembly mode conceptually parallels the common reference
 
 
 
-## Input files
+## Shared reference assembly (simple) mode inputs and outputs
 
 The main inputs to both bonFIRE modes are the single sample outputs of [FIRE](https://fiberseq.github.io/fire/run.html), generated using 'pixi run fire' (see **3.1 Running and installing** under the 3. FIRE on the left-hand side menu). Specifically, it will look for the *.peaks.bed.gz file and *.pileup.bed.gz file in the FIRE output folder indicated in the input file (described below). **Be sure that only one file in the folder provided has the suffixes above.**
 
 Both modes above take in an input.txt file with sample information and a config.yaml. See sections below for mode-specific structure.
 
-### Common reference assembly inputs (simple)
+### Shared reference assembly inputs
 
 #### config.yaml
 An example config can be found under FILL THIS IN.
@@ -151,12 +151,40 @@ Input file for this mode has just two columns (tab delimited): <br>
 **sample_name**: must be unique for each line. Can't contain '|' or ';' <br>
 **path_to_fire_output_folder**: full path to FIRE output folder for this sample, without a trailing /. It must contain exactly one *peaks.bed.gz and one *pileup.bed.gz file directly inside it (the pipeline stops and lists any folder that doesn't).
 
+### Shared reference assembly outputs (simple)
+(in [output_dir]/[prefix]/)
+
+- **[prefix]_final_tbl_w_metadata.tsv.gz**: one row per run and consensus peak.
+- **sample_id**: the run's sample_name
+- **consensus_peak_id**, **cons_chr**, **cons_start**, **cons_end**: the consensus peak and its coordinates
+- **coverage**: number of reads overlapping this consensus peak region at the point of maximum accessibility 
+- **fire_coverage**: number of reads with FIRE elements overlapping this consensus peak region at the point of maximum accessibility.
+- **score**:	an accessibility score at this point calculated during original FIRE peak calling and defined [here](https://fiberseq.github.io/fire/methods/aggregation.html). I rarely use this column in downstream analyses, instead focusing on the raw fire_coverage/coverage calculation (in the fire_cov_OV_cov).
+- **fire_cov_OV_cov**: raw accessibility value calculated as fire_coverage/coverage. Where the run's pileup has no data at the consensus peak, coverage and fire_coverage are 0, score is -1 and fire_cov_OV_cov is NA.
+- **coverage_H1**, **fire_coverage_H1**, **score_H1**, **fire_cov_OV_cov_H1**, and the same for **H2**: the values for each haplotype at the same pileup position. NA for runs whose pileup has no haplotype columns (e.g. unphased runs).
+- **overlaps_original_called_peak**, **num_overlapping_orig_peaks**, **orig_peaks_overlapping_consensus**: as in the graph mode's table, from this run's own peaks.
+- **overlaps_original_called_peak**: TRUE if there was at least one peak overlapping this consensus peak location in the original FIRE dataset. This information should be used with caution, as differences in coverage between samples can impact whether a peak rose above the FDR threshold in the original FIRE calling scheme.
+- **num_overlapping_orig_peaks**: (Probably not useful) The number of originally called FIRE peaks that overlap this consensus peak region. A relic from multi-reference mode and probably not useful here. Filtering of overlapping peaks occurs here.
+- **orig_peaks_overlapping_consensus**: (Probably not useful) Positions of originally called peaks which overlap this consensus peak region, each as chrom_start_end-[sample_name] and separated by commas. *This set is NOT filtered for very nearby peaks as is done for calculating num_overlapping_orig_peaks.
+
+**[prefix]_consensus_peak_summary.tsv**: one row per consensus peak.
+- **consensus_peak_id**, **chr**, **start**, **end**
+- **chr_order**: the peak's position along its chromosome, 1 to the number of peaks on it
+- **seq**: the peak's sequence in the reference
+
+Also kept: [prefix]_Ref_shared_peaks.bed and _6col.bed (the consensus peaks), [prefix]_wPeakIDs.bed.gz (the runs' peaks), [prefix]_max_score_per_peak_all_samples.tsv and [prefix]_orig_called_peaks_intersect_consensus_peaks.bed (inputs to the final tables), [prefix]_Ref_chromosomes.txt and [prefix]_runs.txt, and logs/.
+
+The plotting script (see **Downstream analysis**) also reads these outputs; remove_single_sample_peaks has no effect for them, since every peak is in every run.
+
+
+## Multiple reference assembly mode: inputs and outputs
+
 ### Multiple reference assemblies inputs (pangenome-based)
 
 Graph construction is the most time intensive part of this pipeline and **does not** need to be performed each time if a graph has already been constructed. One can use this pipeline to: <br>
 - Construct graph only (make_graph_only=True in the config file) <br>
-- Construct graph and perform consensus peak calling
-- Perform consensus peak calling with provided graph (This is safest to do with a graph generated via this pipeline!)
+- Construct graph and perform consensus peak calling <br>
+- Perform consensus peak calling with provided graph (This is safest to do with a graph generated via this pipeline!) <br>
   
 As with the common reference mode above, as input, option 2 and 3 require the outputs of [FIRE](https://fiberseq.github.io/fire/run.html), generated using 'pixi run fire' (see **3.1 Running and installing** under the 3. FIRE on the left-hand side menu). Specifically, it will look for the *.peaks.bed.gz file and *.pileup.bed.gz file in the FIRE output folder indicated in the input file (described below). **Be sure that only one file in the folder provided has the suffixes above.**
 
@@ -176,32 +204,34 @@ Input file columns (tab delimited): <br>
 **hap1_in_graph** & **hap2_in_graph**: These are the prefixes used for each haplotype in the graph. I commonly use \[donor-id\]_1 and \[donor-id\]_2. ** If multiple lines of this input file are associated with the same assembly (e.g. multiple tissue samples per donor), these values should be identical in those lines. This way, each unique assembly will only appear in the graph once. <br>
 **hap1_fasta_path** & **hap2_fasta_path**: path to hap1 and hap2 assembly fasta files. Make sure unassigned contigs are not included in these files, and all contigs that are included can be distinguished by **hap1_orig_subtag** & **hap2_orig_subtag**. Lines that share an assembly must have the exact same path (not just an identical copy of the file); otherwise that assembly is added to the graph more than once.
 
-
-
-
-
-
-A sample config can be found in config/sample_configs/config_graphProvided.yaml
+A sample config can be found in config/sample_configs/config_graphProvided.yaml <br>
+Notes:
+- if generating graph only, set **make_graph_only: True** and remove the **graph:** line
+- If using existing graph generated via a previous run, add full path to **graph:**, using the version ending in *.full_all_chrs.gbz
+- **make_graph_only: False** plus setting other graph parameters will run both graph building and consensus peak calling
+- By default, the graph includes one or two haploid reference genomes (main and secondary below). The main reference is used as illustrated in the figure above (as CHM13 is there). If an optional secondary reference is added, the coordinates for all consensus peaks in that reference space will be returned as additional columns in the consensus peak summary output. 
 
 Fields to include: <br>
-**output_dir**: directory to write to <br>
+**output_dir**: directory to write to, no trailing / <br>
 **prefix**: run prefix. A folder within output_dir will be generated with this name and all outputs will be written there. <br>
-**input_file**: Described above <br>
-**ft_path:** path to the `ft` (fibertools) binary to use. If removed, the `ft` in the pipeline's environment is used. **Set this to a fibertools build from GitHub until the next release (beyond v0.13.0; see Installation, step 4)** <br>                                                                 
-**ft_param**: Default 1000. Peaks are 'strung together' into longer sequences to aid surjection onto the correct path. Keep as is for most cases. <br>
+**input_file**: Full path to inputs.txt (different name ok), described below <br>
+**ft_path:** path to the `ft` (fibertools) binary to use. If removed, the `ft` in the pipeline's environment is used. **Set this to a fibertools build from GitHub until the next release (beyond v0.13.0; see Installation, step 4)** <br>                                       
 **graph**: path to graph if one has already been generated. If not, remove this line, and a graph will be generated for you. A provided graph must contain every contig in the input fastas, including those which do not align during graph building. This pipeline adds them back into the graph file to generate graph/[prefix].full_all_chrs.gbz; use this file rather than [prefix].full.gbz. Else, downstream steps may fail (e.g.`vg inject` fails with "alignment references path not present in graph".) <br>
-**CHM13_fasta_path**: Path to CHM13 fasta <br>
-**hg38_fasta_path**: Path to GRCh38 fasta. Though not used in consensus peak calling, the pipeline still outputs GRCh38 coordinates for each consensus peak that can be transferred to this reference space as these can be useful in a variety of downstream applications. <br>
+**main_reference_fasta**: Path to the main reference fasta (haploid; gzipped or not), e.g. CHM13. This reference will serve as the graph scaffold.
+**main_reference_name**: e.g. CHM13. This name will be used as a path name in the pangenome graph, and cannot be a substring of hap1_in_graph, hap2_in_graph, hap1_orig_subtag, hap2_orig_subtag from the input file above. Letters, numbers and _ only.
+**secondary_reference_fasta**: Optional. Path to a second haploid reference fasta, e.g. GRCh38. It isn't used in consensus peak calling; the pipeline outputs each consensus peak's coordinates on it, which can be useful for annotations defined in that reference. Remove this and secondary_reference_name to skip it.
+**secondary_reference_name**: e.g. GRCh38. Same rules as main_reference_name.
+(Older configs with CHM13_fasta_path / hg38_fasta_path still work, as references named CHM13 and GRCh38.)
+**ft_param**: Default 1000. Peaks are 'strung together' into longer sequences to aid surjection onto the correct path. Keep as is for most cases. <br>
 **Peak_length_change_param**: 1 (Keep as is). If a peak length changes by more than 100% after surjection, it will be considered not surjected to that assembly. <br>
-**split_graph**: If graph is being generated, should it be split by chromosome? Default is False, but may need to split for larger graphs. <br>
 **make_graph_only**: Default False. Make True if you'd like to make the graph only, without consensus peak calling. <br>
+**split_graph**: If graph is being generated, should it be split by chromosome? Default is False, but may need to split for larger graphs. <br>
 **graph_mem**: 300000 (Can increase for large graphs) <br>
 **graph_runtime**: 1440 (In minutes. Can increase for large graphs.) <br>
 **vg_mem_mb**: Default 80000. Memory for the vg inject/surject steps; depends on the graph (about 11 GB for a 4-haplotype graph, 60 GB for an 11-sample graph, 180-250 GB for an 82-sample graph). Jobs that fail are retried twice with double the memory each time. <br>
 **vg_threads**: Default 8. CPUs for the vg inject/surject steps.
 
-**If you would like the pipeline to generate a graph, remove the "graph:" line from this config file and set the other graph parameters. make_graph_only can be True or False depending on whether you want your pipeline to continue with downstream consensus peak calling. If a graph is provided, the other graph parameters won't be used.**
-
+If you would like the pipeline to generate a graph, remove the "graph:" line from this config file and set the other graph parameters. make_graph_only can be True or False depending on whether you want your pipeline to continue with downstream consensus peak calling. If a graph is provided, the other graph parameters won't be used.
 
 ## Outputs
 
@@ -212,7 +242,7 @@ All outputs are written to **[output_dir]/[prefix]/**, and file names start with
 | File | Contents |
 |---|---|
 | **[prefix]_final_tbl_w_metadata.tsv.gz** | The main output table: one row per consensus peak per sample haplotype (Output further described below). Chromatin accessibility data is found here. |
-| **[prefix]_consensus_peak_summary.tsv** | One row per consensus peak region with associated metadata: reference (CHM13) chromosome for both reference and non-reference peaks, CHM13 & GRCh38 coordinates where available, relative order of reference and non-reference peaks on a chromosome. (Output further described below). |
+| **[prefix]_consensus_peak_summary.tsv** | One row per consensus peak region with associated metadata: reference chromosome for both reference and non-reference peaks, main and secondary reference coordinates where available, relative order of reference and non-reference peaks on a chromosome. (Output further described below). |
 | **[prefix]_transferred_cons_peaks_native_sequences_from_main_output.bed.gz** | This file returns the native sequence on each assembly associated with each consensus peak region which could be transferred to that assembly. Useful to determine whether haplotype-selective chromatin might be explained by underlying sequence variation, for example. See downstream vignette for halotype-selective analysis. (Output further described below). |
 | **logs/** | One log per rule (and per sample or assembly where a rule runs for each). If a job fails, its log is printed at the end of the run. |
 
@@ -259,9 +289,9 @@ All columns are described below, with the most commonly used columns starred (*)
 
 **asm_peak_id**: the three previous columns, combined
 
-**hg38_chr**, **hg38_start**, **hg38_end**: consensus coordinates transferred to GRCh38. This information is useful for overlapping with annotations defined in GRCh38 coordinates. NAs in these columns mean that this consensus region has no homology in GRCh38.
+**secondary_ref_chr_[name]**, **secondary_ref_start_[name]**, **secondary_ref_end_[name]**: consensus coordinates transferred to the secondary reference, e.g. secondary_ref_chr_GRCh38. Useful for overlapping with annotations defined in that reference. NA means this consensus region has no homology in the secondary reference, or its length changed by more than Peak_length_change_param (1 = 100%) when transferred to this reference. These columns are left out if no secondary reference is given.
 
-**exists_in_hg38**: TRUE/FALSE. TRUE if values in the previous 3 columns are not NA
+**exists_in_secondary_ref_[name]**: TRUE/FALSE. TRUE if values in the previous 3 columns are not NA
 
 **overlaps_original_called_peak**: TRUE if there was at least one peak overlapping this consensus peak location in the original natively-called FIRE dataset. This information should be used with caution, as differences in coverage between samples can impact whether a peak rose above the FDR threshold in the original FIRE calling scheme.
 
@@ -272,25 +302,25 @@ All columns are described below, with the most commonly used columns starred (*)
 
 ### [prefix]_consensus_peak_summary.tsv
 
-One row per consensus peak region.
+One row per consensus peak.
 
 **consensus_peak_id**: as above
 
-**consensus_peak_asm**: the assembly the consensus peak was called on: CHM13, or the assembly's name in the graph (hap1_in_graph or hap2_in_graph from the input file, e.g. SMHT004_1)
+**consensus_peak_asm**: the assembly the consensus peak was called on: the main reference (main_reference_name), or the assembly's name in the graph (hap1_in_graph or hap2_in_graph from the input file, e.g. SMHT004_1)
 
-**chr**: the CHM13 chromosome the peak is on. Consensus peaks which were not called on CHM13 can in most cases still be associated with a reference chromosome based on the chromosome designation of nearby reference peaks. "AMB" indicates a reference chromosome could not be determined, and occurs when a contig does not align to CHM13 at all during graph building.
+**chr**: the main reference chromosome the peak is on. Consensus peaks which were not called in main reference assembly space can in most cases still be associated with a reference chromosome based on the chromosome designation of nearby reference peaks. "AMB" indicates a reference chromosome could not be determined, and occurs when a contig does not align to the main reference at all during graph building.
 
-**exists_in_CHM13**: TRUE if the consensus peak was called on CHM13
+**exists_in_main_ref_[name]**: TRUE if the consensus peak was called in main reference space. e.g. exists_in_main_ref_CHM13
 
-**CHM13_chr**, **CHM13_start**, **CHM13_end**: its CHM13 coordinates (NA if not called on CHM13)
+**main_ref_chr_[name]**, **main_ref_start_[name]**, **main_ref_end_[name]**: its main reference coordinates (NA if not called on the main reference)
 
-**exists_in_hg38**: TRUE if the consensus peak could be transferred to GRCh38
+**exists_in_secondary_ref_[name]**: TRUE if the consensus peak could be transferred to the secondary reference (only with a secondary reference)
 
-**hg38_chr**, **hg38_start**, **hg38_end**: its GRCh38 coordinates (NA if it couldn't be transferred)
+**secondary_ref_chr_[name]**, **secondary_ref_start_[name]**, **secondary_ref_end_[name]**: its secondary reference coordinates (NA if it couldn't be transferred; only with a secondary reference)
 
-\***chr_order**: the peak's position along its chromosome, numbered 1 to the number of peaks on that chromosome, with no two peaks sharing a number. CHM13 peaks are in CHM13 order, and each non-reference peak is placed between its closest neighboring CHM13 peaks. Non-reference peaks in the same gap are ordered by assembly, then contig, then position along the contig (reversed where the contig is oriented opposite to CHM13 in the native assembly). NA for AMB peaks.
+\***chr_order**: the peak's position along its chromosome, numbered 1 to the number of peaks on that chromosome, with no two peaks sharing a number. Main reference peaks are in reference order, and each non-reference peak is placed between its closest neighboring reference peaks. Non-reference peaks in the same gap are ordered by assembly, then contig, then position along the contig (reversed where the contig is oriented opposite to reference in the native assembly). NA for AMB peaks.
 
-**chr_slot**: the gap chr_order is built from. The k-th CHM13 peak on the chromosome has chr_slot 2k; non-reference peaks after it have 2k+1, those before the first CHM13 peak have 1. Non-reference peaks in the same gap share a chr_slot, and odd numbers with no peaks are skipped by chr_order, so chr_slot is usually larger than chr_order. NA for AMB peaks.
+**chr_slot**: the gap chr_order is built from. The k-th reference peak on the chromosome has chr_slot 2k; non-reference peaks after it have 2k+1, those before the first reference peak have 1. Non-reference peaks in the same gap share a chr_slot, and odd numbers with no peaks are skipped by chr_order, so chr_slot is usually larger than chr_order. NA for AMB peaks.
 
 **at_start_of_chr**, **at_end_of_chr**: TRUE for non-reference peaks placed before the chromosome's first CHM13 peak, or after its last (previous_peak AT_START or AT_END below). NA for AMB peaks.
 
@@ -314,8 +344,8 @@ Rscript downstream/process_consensus_peak_output.R input_dir output_dir prefix [
 
 **input_dir** is the pipeline's [output_dir]/[prefix]/. **exclude_runs** is optional: a comma-separated list, and any sample_id containing one of them is left out. One can choose to do this if a sample  . The cutoffs are set at the top of the script:
 
-- A consensus peak is a **peak** in a sample haplotype if fire_coverage ≥ 4 and fire_cov_OV_cov ≥ 0.2. Consensus peaks that are a peak in no sample haplotype are dropped.
-- A peak is **tested** for haplotype selectivity in a run if both haplotypes have coverage ≥ 10 and their fire_cov_OV_cov differ by ≥ 0.25. Tested peaks are compared with a Fisher's exact test (FIRE vs. non-FIRE reads on each haplotype), corrected (Benjamini–Hochberg) across all tested pairs, and are **haplotype-selective** at FDR ≤ 0.05. Only autosomal peaks are tested (not chrX, chrY, chrM or AMB).
+- By default, a consensus peak is a **peak** (accessible chromatin) in a sample haplotype if fire_coverage ≥ 4 and fire_cov_OV_cov ≥ 0.2. Consensus peaks that are a peak in no sample haplotype are dropped.
+- A peak is **tested** for haplotype selectivity in a run if both haplotypes have coverage ≥ 10 and their fire_cov_OV_cov differ by ≥ 0.25. Tested peaks are compared with a Fisher's exact test (FIRE vs. non-FIRE reads on each haplotype) and are called **haplotype-selective** via this nominally significant value. Only autosomal peaks are tested (not chrX, chrY, chrM or AMB).
 - **seqs_match** is TRUE if the peak's sequence is the same on both haplotypes (or the reverse complement), so a haplotype-selective peak may be driven by the sequence change if FALSE.
 
 Outputs, in output_dir:
