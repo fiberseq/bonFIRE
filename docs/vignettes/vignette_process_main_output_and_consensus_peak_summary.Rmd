@@ -176,7 +176,8 @@ tbl_haplotype = merge(tbl_haplotype, seq_by_hap[, .(consensus_peak_id, sample, s
 tbl_haplotype[, .N, by = .(hap_selective, seqs_match)][order(-hap_selective, seqs_match)]
 ```
 
-To save the results (the script writes these two files):
+To save the results: 
+(You may also want to save a new copy of tbl for downstream plotting if samples were filtered out)
 
 ```{r save, eval = FALSE}
 fwrite(cons_peak_summary, paste0(params$prefix, "_consensus_peak_summary_processed.tsv"), sep = "\t", na = "NA", quote = FALSE)
