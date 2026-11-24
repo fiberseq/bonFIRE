@@ -403,5 +403,6 @@ Interpreting the plot:
 - **Black outline around column**: User provided coordinate falls within this peak. See TSS column explanation above
 - **Star in box**: This indicates that more than one distinct original peak in this sample overlaps this consensus peak when transferred to the consensus assembly (there is a number >1 in the **num_overlapping_orig_peaks** column in the main output -- see how these are filtered above). This **may** indicate copy number differences. These are returned purely to alert us to locations where we need to take a closer look, as chromatin actuation values may not actually represent consistent copies between samples.
 
+<img width="235" height="584" alt="HPRC_HLA_example_chr6_32479492-32492810_HLA-DQB1_clustered" src="https://github.com/user-attachments/assets/b21a1646-7c5e-4f40-a5f5-782ade1332c9" />
 
 
