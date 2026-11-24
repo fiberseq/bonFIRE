@@ -328,7 +328,7 @@ One row per consensus peak.
 
 **chr_slot**: the gap chr_order is built from. The k-th reference peak on the chromosome has chr_slot 2k; non-reference peaks after it have 2k+1, those before the first reference peak have 1. Non-reference peaks in the same gap share a chr_slot, and odd numbers with no peaks are skipped by chr_order, so chr_slot is usually larger than chr_order. NA for AMB peaks.
 
-**at_start_of_chr**, **at_end_of_chr**: TRUE for non-reference peaks placed before the chromosome's first reference peak, or after its last (previous_peak AT_START or AT_END below). NA for AMB peaks.
+**at_start_of_chr**, **at_end_of_chr**: TRUE for non-reference peaks placed before the chromosome's first reference peak, or after its last. NA for AMB peaks.
 
 ### [prefix]_transferred_cons_peaks_native_sequences_from_main_output.bed.gz
 
