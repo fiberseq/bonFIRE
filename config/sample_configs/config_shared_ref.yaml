@@ -1,11 +1,11 @@
-# Every run was processed against the same haploid reference, so no graph is used: consensus peaks are
-# called on that reference directly. Graph-only settings (graph, ft_param, vg_*, secondary reference, ...)
-# are ignored in this mode.
+# Shared reference assembly mode: every FIRE run was processed against the same haploid reference, so no graph
+# is used. Settings for the multiple reference assembly mode (graph, ft_param, vg_*, secondary reference, ...)
+# are ignored here.
 output_dir: /path/to/output_dir
 prefix: my_shared_ref_run
-input_file: config/sample_configs/cons_peak_calling_shared_ref_input_sample.txt
+input_file: /path/to/bonFIRE/config/sample_configs/input_shared_ref.txt
 shared_ref: True
 # the reference all runs were processed against (gzipped or not)
-main_reference_fasta: /path/to/reference.fa
-# optional: an ft build to use (see Installation, step 4)
+main_reference_fasta: /path/to/references/GRCh38.fa
+# optional: an ft build to use (see Installation, step 4); if removed, the ft in the pipeline's environment is used
 #ft_path: /path/to/fibertools-rs/target/release/ft
