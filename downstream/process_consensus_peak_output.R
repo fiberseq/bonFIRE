@@ -80,9 +80,15 @@ fwrite(cons_peak_summary, paste0(output_dir, prefix, "_consensus_peak_summary_pr
 autosomal_peaks = cons_peak_summary[autosomal == TRUE, consensus_peak_id]
 tbl = tbl[consensus_peak_id %in% autosomal_peaks]
 
-## sample_id ends in the haplotype, e.g. HG00438_PS00991_ONT_HG00438_1 -> sample HG00438_PS00991_ONT_HG00438, haplotype 1
-tbl[, haplotype := sub("^.*_", "", sample_id)]
-tbl[, sample := sub("_[^_]*$", "", sample_id)]
+## a run's two haplotypes are paired by the table's sample_name and haplotype (1 or 2) columns. Tables from
+## before those columns existed: split sample_id instead, which needs graph names ending in _1 and _2
+## (e.g. HG00438_PS00991_ONT_HG00438_1 -> sample HG00438_PS00991_ONT_HG00438, haplotype 1)
+if(all(c("sample_name", "haplotype") %in% names(tbl))){
+  tbl[, sample := sample_name]
+} else {
+  tbl[, haplotype := sub("^.*_", "", sample_id)]
+  tbl[, sample := sub("_[^_]*$", "", sample_id)]
+}
 
 tbl_haplotype = dcast(tbl, consensus_peak_id + sample ~ haplotype,
                       value.var = c("coverage", "fire_coverage", "fire_cov_OV_cov"), sep = "_")

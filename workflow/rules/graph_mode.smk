@@ -103,11 +103,11 @@ pairs_1_4 = list(zip(input_tbl["sample_name"], input_tbl["hap2_in_graph"]))
 all_sample_pileup_pairs = pairs_1_3 + pairs_1_4
 
 # each run's sample_id for each of its assembly haplotypes is run_graphAsm (see process_intersection_file);
-# the metadata step looks the run and assembly up here instead of splitting the name, so run and graph
-# names can contain any number of "_"
+# the metadata step looks the run, assembly and haplotype (1 for hap1_in_graph, 2 for hap2_in_graph) up here
+# instead of splitting the name, so run and graph names can be anything
 sample_ids_tbl = pd.DataFrame(
-    [(f"{run}_{asm}", run, asm) for run, asm in all_sample_pileup_pairs],
-    columns=["sample_id", "run", "graph_asm"]
+    [(f"{run}_{asm}", run, asm, hap) for pairs, hap in ((pairs_1_3, 1), (pairs_1_4, 2)) for run, asm in pairs],
+    columns=["sample_id", "run", "graph_asm", "haplotype"]
 ).drop_duplicates()
 ambiguous = sample_ids_tbl[sample_ids_tbl["sample_id"].duplicated(keep=False)]
 if len(ambiguous) > 0:

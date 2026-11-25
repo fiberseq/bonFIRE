@@ -264,7 +264,7 @@ These are kept so the final tables can be regenerated, or to help with troublesh
   - [prefix]_orig_called_peaks_intersect_transferred_consensus_peaks.bed
   - [prefix]_all_orig_surjected_peaks_intersect_consensus_peaks.bed
   - [prefix]_graph_prefixed_input.tsv
-  - [prefix]_sample_ids.tsv (each sample_id with its sample_name and graph name)
+  - [prefix]_sample_ids.tsv (each sample_id with its sample_name, graph name and haplotype)
   - [prefix]_Ref_chromosomes.txt
   - temp_previous_peak_files/[prefix]_previous_peaks_[assembly].tsv, one per assembly
 - **Consensus peaks**: [prefix]_Ref_shared_peaks.bed and _6col.bed, [prefix]_NonRef_shared_peaks.bed and _6col.bed, and [prefix]_ALL_consensus_peaks_combined.bed
@@ -276,6 +276,10 @@ These are kept so the final tables can be regenerated, or to help with troublesh
 All columns are described below, with the most commonly used columns starred (*).
 
 \***sample_id**: **sample_name** from the input file + "_" + **hap1/2_in_graph** from input file. This sample_id describes a sample haplotype pair. e.g. SMHT004_liver_SMHT004_1 and SMHT004_liver_SMHT004_2. Each line in the input file produces two sample_id's. 
+
+**sample_name**: the run's sample_name from the input file.
+
+**haplotype**: 1 or 2: whether this sample_id's graph name is the run's **hap1_in_graph** or **hap2_in_graph**. Together with sample_name, this pairs a run's two haplotypes, so graph names can be anything (they don't need to end in _1 and _2).
 
 \***consensus_peak_id**: consensus peak region identifier. This is built from the consensus peak coordinates, and thus indicates the assembly on which that consensus peak region was called. Additional metadata for each consensus_peak_id, such as the assembly it was called on, reference chromosome it is associated with, etc., is recorded in **[prefix]_consensus_peak_summary.tsv**. **All possible consensus_peak_id - sample_id combinations are represented in this output file, whether or not accessibility data is available. See downstream analysis vignettes for filtering suggestions.**
 

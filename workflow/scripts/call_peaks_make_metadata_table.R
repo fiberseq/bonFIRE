@@ -72,7 +72,7 @@ secondary_ref_name=args[7]
 has_secondary_ref = secondary_ref_name != "NA"
 ## a peak's secondary reference location is kept if its length changed by at most this fraction
 length_change_filter=as.numeric(args[8])
-## sample_id, run and graph assembly name for every sample_id (no header)
+## sample_id, run, graph assembly name and haplotype (1 or 2) for every sample_id (no header)
 sample_ids_file=args[9]
 ## one _previous_peaks_{asm}.tsv per assembly
 previous_peak_files=args[-(1:9)]
@@ -104,10 +104,11 @@ tbl$cons_end = as.numeric(id_end(tbl$consensus_peak_id))
 ## NA where there are no reads: coverage NA (not transferred) or 0 (transferred, but no pileup data in this run)
 tbl$fire_cov_OV_cov = ifelse(tbl$coverage > 0, tbl$fire_coverage/tbl$coverage, NA)
 
-## each sample_id's run and graph assembly name, from the table the Snakefile writes (sample_id is
-## run_graphAsm, but run and graph names can both contain "_", so the name isn't split)
+## each sample_id's run, graph assembly name and haplotype, from the table the Snakefile writes (sample_id
+## is run_graphAsm, but the name isn't split, so run and graph names can be anything)
 unique_sample_id = unique(tbl$sample_id)
-sample_ids = fread(sample_ids_file, header = FALSE, col.names = c("sample_id", "run", "graph_asm"), colClasses = "character")
+sample_ids = fread(sample_ids_file, header = FALSE, col.names = c("sample_id", "run", "graph_asm", "haplotype"),
+                   colClasses = c("character", "character", "character", "integer"))
 m = match(unique_sample_id, sample_ids$sample_id)
 if(anyNA(m)){
   stop("these sample_ids are missing from ", sample_ids_file, ": ", paste(head(unique_sample_id[is.na(m)]), collapse = ", "))
@@ -116,6 +117,10 @@ sample_graph_asm = sample_ids$graph_asm[m]
 sample_asm = sample_prefix_file$asm[match(sample_graph_asm, sample_prefix_file$graph_asm)]
 sample_run = sample_ids$run[m]
 tbl_sample_idx = match(tbl$sample_id, unique_sample_id)
+## sample_name and haplotype go in the table, so downstream code can pair a run's two haplotypes without
+## parsing sample_id
+tbl$sample_name = sample_run[tbl_sample_idx]
+tbl$haplotype = sample_ids$haplotype[m][tbl_sample_idx]
 tbl$asm = sample_asm[tbl_sample_idx]
 
 ## rows are grouped by sample (in input order); within a sample, transferred peaks come
@@ -274,6 +279,7 @@ final_order = c(final_order[non0[final_order]], final_order[!non0[final_order]])
 rm(m, in_gr2, non0)
 setDT(updated_tbl)
 updated_tbl[, sample_id_peak_id_TEMP_COL := NULL]
+setcolorder(updated_tbl, c("sample_id", "sample_name", "haplotype"))
 updated_tbl = updated_tbl[final_order]
 
 ## sequences are in _transferred_cons_peaks_native_sequences_from_main_output.bed.gz, keyed by asm_peak_id
