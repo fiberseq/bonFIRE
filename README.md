@@ -1,5 +1,8 @@
 # bonFIRE
 
+<img width="305" height="307" alt="New_Github_Figs-07" src="https://github.com/user-attachments/assets/8f81fd24-f766-4538-86da-322d3c23d677" />
+
+
 bonFIRE is a toolkit designed to simplify comparative analysis of Fiber-seq data across samples as well as enable **direct comparison of Fiber-seq data processed against multiple distinct genome assemblies.**
 
 The input to bonFIRE is one or several [FIRE](https://fiberseq.github.io/fire/run.html) runs. See **Shared reference assembly (simple) mode: inputs and outputs** and **Multiple reference assembly mode: inputs and outputs** for more information on generating these.
@@ -105,7 +108,8 @@ The simplest case of bonFIRE takes as input Fiber-seq data from multiple samples
 (1) Identify a set of consensus peaks: genomic regions where a peak was called in at least one sample (using [sample].peaks.bed.gz) <br>
 (2) Evaluate chromatin accessibility at these consensus peaks in each sample, whether or not a peak was originally called in that sample. (using [sample].pileup.bed.gz)
 
-<img width="402" height="460" alt="github_figs-03" src="https://github.com/user-attachments/assets/4b05afe0-2880-483c-9277-66d9ebd2b4ef" />
+<img width="402" height="460" alt="New_Github_Figs-03" src="https://github.com/user-attachments/assets/723d062b-633d-4b8e-9b2a-ade27ec1ed9f" />
+
 
 The output contains raw counts from the pileup, and thus a chromatin actuation score can be recalculated with filters specific to the whole group. This approach is thus effectively normalizes for read depth differences between samples (where a peak may be called in one sample and not the other simply due to read depth differences), and is preferable to simply looking for overlaps of called peaks in the sample-specific peak outputs. 
 
@@ -117,9 +121,7 @@ Note: This mode currently assumes that samples are processed against one or mult
 
 The multiple reference assembly mode conceptually parallels the common reference assembly approach described above, where a set of consensus peaks are first defined, and then raw chromatin accessibility values are pulled from each sample's native FIRE output at those positions. However, a consensus peak no longer represents a static genomic interval in one assembly space; rather, it is a set of homologous loci across assemblies, associated with a single consensus peak label. To facilitate the identification of homologous regions, we first construct a pangenome graph of all input assemblies as well as one or two 'reference' assemblies for easy downstream interpretation of data against annotations in those reference spaces. We can use these graphs to move features (e.g. FIRE peak coordinates from a single sample) between any pair of assemblies in the graph. Defining consensus peaks involves progressively moving the full set to natively-called FIRE peaks across all samples to shared assembly spaces, and defining consensus peaks within that shared coordinate system. Each consensus peak is ultimately transferred back through the graph to each native assembly, and natively measured chromatin accessibility data is pulled from that region. This process retains genomic loci that only exist in one or a subset of assemblies, as well as those ubiquitously present across the population. 
 
-<img width="1121" height="1633" alt="github_figs-06" src="https://github.com/user-attachments/assets/de343e71-d678-45d9-b5e0-96ca4bab883b" />
-
-
+<img width="1121" height="1739" alt="New_Github_Figs-06" src="https://github.com/user-attachments/assets/42d4becd-647a-4b9b-a1bf-492afaaed69f" />
 
 ## Shared reference assembly (simple) mode: inputs and outputs
 
