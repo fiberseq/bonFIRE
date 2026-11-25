@@ -238,7 +238,7 @@ Fields in config.yaml: <br>
 
 If you would like the pipeline to generate a graph, remove the "graph:" line from this config file and set the other graph parameters. make_graph_only can be True or False depending on whether you want your pipeline to continue with downstream consensus peak calling. If a graph is provided, the other graph parameters won't be used.
 
-## Outputs
+### Outputs
 
 All outputs are written to **[output_dir]/[prefix]/**, and file names start with **[prefix]_**.
 
