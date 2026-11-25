@@ -190,6 +190,6 @@ fwrite(tbl_haplotype, paste0(params$prefix, "_hap_selectivity_info.tsv"), sep = 
 ```
 
 If you filtered out samples, save tbl as well:
-```{r save, eval = FALSE}
+```{r save-table, eval = FALSE}
 fwrite(tbl, paste0(params$prefix, "_final_tbl_w_metadata_processed.tsv.gz"), sep = "\t", na = "NA", quote = FALSE)
 ```
