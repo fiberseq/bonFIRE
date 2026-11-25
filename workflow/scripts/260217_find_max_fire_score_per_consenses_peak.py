@@ -65,8 +65,9 @@ def main(
             else:
                 vect = line.rstrip("\n").split("\t")
                 cons_peak_id = vect[-1]
+                # transferred to this assembly but no pileup row overlaps it: no reads in this run
                 if cons_peak_id not in out_dict:
-                    out_dict[cons_peak_id] = ["NA", "NA", -1]
+                    out_dict[cons_peak_id] = [0, 0, -1]
     
     with open(consenseus_peak_file, "r") as f:
         for line in f:

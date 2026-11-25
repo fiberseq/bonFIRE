@@ -101,7 +101,8 @@ tbl$cons_chr = id_chr(tbl$consensus_peak_id)
 tbl$cons_start = as.numeric(id_start(tbl$consensus_peak_id))
 tbl$cons_end = as.numeric(id_end(tbl$consensus_peak_id))
 
-tbl$fire_cov_OV_cov = tbl$fire_coverage/tbl$coverage
+## NA where there are no reads: coverage NA (not transferred) or 0 (transferred, but no pileup data in this run)
+tbl$fire_cov_OV_cov = ifelse(tbl$coverage > 0, tbl$fire_coverage/tbl$coverage, NA)
 
 ## each sample_id's run and graph assembly name, from the table the Snakefile writes (sample_id is
 ## run_graphAsm, but run and graph names can both contain "_", so the name isn't split)
@@ -291,7 +292,9 @@ if(nrow(conflicts) > 0){
   print(previous_peaks[consensus_peak_id %in% conflicts$consensus_peak_id])
   stop(nrow(conflicts), " consensus peaks have different chr/previous_peak values in different files")
 }
-fwrite(previous_peaks, paste0(output_dir, prefix, "_previous_peaks_nonRef_chrs.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
+## in additional_outputs/, with the previous peak checks
+dir.create(paste0(output_dir, "additional_outputs"), showWarnings = FALSE)
+fwrite(previous_peaks, paste0(output_dir, "additional_outputs/", prefix, "_previous_peaks_nonRef_chrs.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
 
 progress("summarizing each consensus peak")
 ## one row per consensus peak; secondary reference info is the same in every row of a peak, so it comes
