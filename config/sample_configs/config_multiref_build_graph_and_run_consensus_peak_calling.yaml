@@ -1,0 +1,19 @@
+# Multiple reference assembly mode, building the graph and then calling consensus peaks. With no "graph:" line,
+# the pipeline builds one ([output_dir]/[prefix]/graph/[prefix].full_all_chrs.gbz), which later runs can reuse.
+output_dir: /path/to/output_dir
+prefix: my_multiref_run
+input_file: /path/to/bonFIRE/config/sample_configs/input_multiref.txt
+make_graph_only: False
+main_reference_fasta: /path/to/references/CHM13.fa
+main_reference_name: CHM13
+# optional; remove both lines to skip the secondary reference
+secondary_reference_fasta: /path/to/references/GRCh38.fa
+secondary_reference_name: GRCh38
+#ft_path: /path/to/fibertools-rs/target/release/ft
+ft_param: 1000
+Peak_length_change_param: 1
+split_graph: False
+graph_mem: 300000
+graph_runtime: 1440
+vg_mem_mb: 80000
+vg_threads: 8

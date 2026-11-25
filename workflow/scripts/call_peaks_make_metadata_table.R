@@ -1,200 +1,213 @@
 library(ggplot2)
 library(dplyr)
 library(tidyr)
+library(data.table)
 
-return_chr = function(a){
-  num_elements = length(strsplit(a, "_")[[1]])
-  return(paste(strsplit(a, "_")[[1]][1:(num_elements-2)], collapse = "_"))
+## These parse ids like chrom_start_end. Chrom names can contain "_", so start and end
+## are the last two fields. They work on whole vectors, parsing each distinct id once.
+id_chr = function(a){
+  u = unique(a)
+  sub("_[^_]*_[^_]*$", "", u)[match(a, u)]
 }
 
-return_start = function(a){
-  num_elements = length(strsplit(a, "_")[[1]])
-  return(strsplit(a, "_")[[1]][num_elements-1])
+id_start = function(a){
+  u = unique(a)
+  sub("^.*_([^_]*)_[^_]*$", "\\1", u)[match(a, u)]
 }
 
-return_end = function(a){
-  num_elements = length(strsplit(a, "_")[[1]])
-  return(strsplit(a, "_")[[1]][num_elements])
+id_end = function(a){
+  u = unique(a)
+  sub("^.*_", "", u)[match(a, u)]
 }
 
-return_surj_peak_length = function(a){
-  splt=strsplit(a,"_")[[1]]
-  return(as.numeric(splt[length(splt)])-as.numeric(splt[length(splt)-1]))
+## "SMHT004#1#haplotype1-0000001" -> "SMHT004#1#"
+id_chr_w_hash = function(a){
+  sub("^([^#]*)#([^#]*).*$", "\\1#\\2#", a)
 }
 
-return_surj_chr = function(a){
-  splt=strsplit(a,"-")[[1]][length(strsplit(a,"-")[[1]])]
-  split2=paste(strsplit(splt, "_")[[1]][1:(length(strsplit(splt, "_")[[1]])-2)], collapse = "_")
-  return(split2)
-}
-
-return_cons_peak = function(a){
-  splt=strsplit(a,"-")[[1]][length(strsplit(a,"-")[[1]])]
-  return(splt)
-}
-
-return_chr_w_hash = function(a){
-  splt=strsplit(a, "#")[[1]]
-  return(paste0(splt[1], "#", splt[2], "#"))
-}
-
-return_samp_hap_id = function(a, conversion_table){
-  temp_sample = strsplit(a[1], "-")[[1]][1]
-  for(i in 1:nrow(conversion_table)){
-    temp_asm = conversion_table[i,"asm"]
-    if(grepl(temp_asm, a[2])){
-      temp_garph_asm=conversion_table[i,"graph_asm"]
-      return(paste0(temp_sample, "_", temp_garph_asm))
-    }
+## the input-file asm a contig belongs to: its "#" prefix, or for assemblies without one
+## (e.g. HG002's "chr10_MATERNAL") the subtag the name contains. NA if none matches
+contig_asm = function(chr, asms){
+  out = ifelse(grepl("#", chr), id_chr_w_hash(chr), NA_character_)
+  for(a in asms[!grepl("#", asms)]){
+    out[is.na(out) & grepl(a, chr, fixed = TRUE)] = a
   }
+  out
 }
 
-return_samp_hap_id_2 = function(a, conversion_table){
-  temp_sample = a[1]
-  if(grepl("#", a[2])){
-    temp_split=strsplit(a[2],"#")[[1]]
-    temp_chr = paste0(temp_split[1], "#", temp_split[2], "#")
-    temp_garph_asm=conversion_table[which(conversion_table$asm == temp_chr),"graph_asm"]
-    return(paste0(temp_sample, "_", temp_garph_asm))
+## one number per (a, b) pair, so large tables can be matched without pasting strings
+## together. a and b are indices from match(); the pair is NA if either is NA
+pair_key = function(a, b, n_b){
+  a * (n_b + 1) + b
+}
+
+progress = function(msg){
+  print(paste(format(Sys.time(), "%H:%M:%S"), msg))
+}
+
+read_tsv = function(file, header, unique_rows = FALSE, ...){
+  x = fread(file, header = header, sep = "\t", quote = "", na.strings = "NA", ...)
+  if(unique_rows){
+    x = unique(x)
   }
-  else {
-    sub_conversion_table = conversion_table[which(!(grepl("#",conversion_table$asm))),]
-    for(i in 1:nrow(sub_conversion_table)){
-      temp_asm = sub_conversion_table[i,"asm"]
-      if(grepl(temp_asm, a[2])){
-        temp_garph_asm=sub_conversion_table[i,"graph_asm"]
-        return(paste0(temp_sample, "_", temp_garph_asm))
-      }
-    }
-  }
+  as.data.frame(x)
 }
 
 args <- commandArgs(trailingOnly = TRUE)
+## shared with the shared-reference metadata script; it's in this script's folder
+script_dir = dirname(sub("^--file=", "", grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)))
+source(file.path(script_dir, "orig_peak_overlap_counts.R"))
 
 input_dir=args[1]
 output_dir=input_dir
 prefix=args[2]
 sample_pefix_file_name=args[3]
+threads=if(length(args) >= 4) as.integer(args[4]) else 1
+setDTthreads(threads)
+## main reference chromosome names, one per line
+ref_chrs=readLines(args[5])
+## the references' names, which go into column names; secondary_ref_name is NA without a secondary reference
+main_ref_name=args[6]
+secondary_ref_name=args[7]
+has_secondary_ref = secondary_ref_name != "NA"
+## a peak's secondary reference location is kept if its length changed by at most this fraction
+length_change_filter=as.numeric(args[8])
+## sample_id, run, graph assembly name and haplotype (1 or 2) for every sample_id (no header)
+sample_ids_file=args[9]
+## one _previous_peaks_{asm}.tsv per assembly
+previous_peak_files=args[-(1:9)]
 
-tbl = read.table(paste0(input_dir, prefix, "_max_score_per_peak_all_samples.bed"), header = T, sep = "\t", stringsAsFactors = F, comment.char = "")
-trans_peaks = read.table(paste0(input_dir, prefix, "_combined_tranferred_peaks_all_samples.bed"), header = T, sep = "\t", stringsAsFactors = F, comment.char = "")
+progress("reading inputs")
+tbl = read_tsv(paste0(input_dir, prefix, "_max_score_per_peak_all_samples.bed"), header = T)
+## a donor's assembly can be listed once per run; only the first copy of a peak is ever used
+trans_peaks = read_tsv(paste0(input_dir, prefix, "_combined_tranferred_peaks_all_samples.bed"), header = T, unique_rows = T)
 sample_prefix_file = read.table(sample_pefix_file_name, sep = "\t", header = F, stringsAsFactors = F, comment.char = "")
 colnames(sample_prefix_file) = c("asm", "graph_asm", "path_to_fasta")
 
-hg38_file=read.table(paste0(input_dir, prefix, "_All_consensus_peaks_moved_to_GRCh38.bed"), sep="\t", header=F, stringsAsFactors = F, comment.char = "")
-colnames(hg38_file) = c("hg38_chr", "hg38_start", "hg38_end", "consensus_peak_id")
-orig_peak_trans_peak_intersect=read.table(paste0(input_dir, prefix, "_orig_called_peaks_intersect_transferred_consensus_peaks.bed"), sep="\t", header=F, stringsAsFactors = F, comment.char = "")
-colnames(orig_peak_trans_peak_intersect)=c("orig_chr", "orig_start", "orig_end", "sample_id", "orig_peak_id", "trans_chr", "trans_start", "trans_end", "cons_peak_id")
+if(has_secondary_ref){
+  sec_file=read_tsv(paste0(input_dir, prefix, "_All_consensus_peaks_moved_to_SecondaryRef.bed"), header=F)
+  colnames(sec_file) = c("sec_chr", "sec_start", "sec_end", "consensus_peak_id")
+}
+## only the run and the transferred peak are used from this file
+orig_peak_trans_peak_intersect=read_tsv(paste0(input_dir, prefix, "_orig_called_peaks_intersect_transferred_consensus_peaks.bed"), header=F, unique_rows = T, select = c(4, 6, 7, 8))
+colnames(orig_peak_trans_peak_intersect)=c("sample_id", "trans_chr", "trans_start", "trans_end")
 orig_peak_trans_peak_intersect$trans_peak_id = paste0(orig_peak_trans_peak_intersect$trans_chr, "_", orig_peak_trans_peak_intersect$trans_start, "_",orig_peak_trans_peak_intersect$trans_end)
 
-surj_peak_cons_peak_intersect=read.table(paste0(input_dir,prefix, "_all_orig_surjected_peaks_intersect_consensus_peaks.bed"), sep="\t", header=F, stringsAsFactors = F, comment.char = "")
+surj_peak_cons_peak_intersect=read_tsv(paste0(input_dir,prefix, "_all_orig_surjected_peaks_intersect_consensus_peaks.bed"), header=F)
 colnames(surj_peak_cons_peak_intersect) = c("chr_surj", "start_surj", "end_surj", "sample_chr_id", "peak_id_orig", "chr_cons", "start_cons", "end_cons", "peak_id_cons" )
 
-peak_sequence_file = read.table(paste0(input_dir,prefix,"_transferred_cons_peaks_native_sequences_from_main_output.bed"), sep="\t", header=F, stringsAsFactors = F, comment.char = "")
-colnames(peak_sequence_file) = c("asm_chr", "asm_start", "asm_end", "cons_peak_id", "seq")
-peak_sequence_file$asm_peak_id = paste0(peak_sequence_file$asm_chr, "_", peak_sequence_file$asm_start, "_", peak_sequence_file$asm_end)
+progress("adding assembly coordinates")
+tbl$cons_chr = id_chr(tbl$consensus_peak_id)
+tbl$cons_start = as.numeric(id_start(tbl$consensus_peak_id))
+tbl$cons_end = as.numeric(id_end(tbl$consensus_peak_id))
 
+## NA where there are no reads: coverage NA (not transferred) or 0 (transferred, but no pileup data in this run)
+tbl$fire_cov_OV_cov = ifelse(tbl$coverage > 0, tbl$fire_coverage/tbl$coverage, NA)
 
-if(1 == 0){
-  input_dir="/mmfs1/gscratch/stergachislab/HPRC/fiber-seq-pilot/HLA_graphs/peak_calling_all_chrs/All_HPRC_peaks_NewGraph_w_HG002/"
-  
-  output_dir="/mmfs1/gscratch/stergachislab/HPRC/fiber-seq-pilot/HLA_graphs/peak_calling_all_chrs/All_HPRC_peaks_NewGraph_w_HG002/"
-  prefix="All_HPRC_peaks_NewGraph_w_HG002"
-  tbl = read.table(paste0(input_dir,"All_HPRC_peaks_NewGraph_w_HG002_max_score_per_peak_all_samples.bed"), header = T, sep = "\t", stringsAsFactors = F, comment.char = "")
-  trans_peaks = read.table(paste0(input_dir,"All_HPRC_peaks_NewGraph_w_HG002_combined_tranferred_peaks_all_samples.bed"), header = T, sep = "\t", stringsAsFactors = F, comment.char = "")
-  sample_prefix_file = read.table("/mmfs1/gscratch/stergachislab/HPRC/fiber-seq-pilot/HLA_graphs/alg_dev/sm_input_file.txt", sep = "\t", header = F, stringsAsFactors = F, comment.char = "")
-  colnames(sample_prefix_file) = c("asm", "graph_asm", "path_to_fasta")
-  
-  hg38_file=read.table(paste0(input_dir,"All_HPRC_peaks_NewGraph_w_HG002_All_consensus_peaks_moved_to_GRCh38.bed"), sep="\t", header=F, stringsAsFactors = F, comment.char = "")
-  colnames(hg38_file) = c("hg38_chr", "hg38_start", "hg38_end", "consensus_peak_id")
-  orig_peak_trans_peak_intersect=read.table(paste0(input_dir, "All_HPRC_peaks_NewGraph_w_HG002_orig_called_peaks_intersect_transferred_consensus_peaks.bed"), sep="\t", header=F, stringsAsFactors = F, comment.char = "")
-  colnames(orig_peak_trans_peak_intersect)=c("orig_chr", "orig_start", "orig_end", "sample_id", "orig_peak_id", "trans_chr", "trans_start", "trans_end", "cons_peak_id")
-  orig_peak_trans_peak_intersect$trans_peak_id = paste0(orig_peak_trans_peak_intersect$trans_chr, "_", orig_peak_trans_peak_intersect$trans_start, "_",orig_peak_trans_peak_intersect$trans_end)
-  
-  surj_peak_cons_peak_intersect=read.table(paste0(input_dir,"All_HPRC_peaks_NewGraph_w_HG002_all_orig_surjected_peaks_intersect_consensus_peaks.bed"), sep="\t", header=F, stringsAsFactors = F, comment.char = "")
-  colnames(surj_peak_cons_peak_intersect) = c("chr_surj", "start_surj", "end_surj", "sample_chr_id", "peak_id_orig", "chr_cons", "start_cons", "end_cons", "peak_id_cons" )
-  
-  peak_sequence_file = read.table(paste0(input_dir,"All_HPRC_peaks_NewGraph_w_HG002_transferred_cons_peaks_native_sequences_from_main_output.bed", sep="\t", header=F, stringsAsFactors = F, comment.char = ""))
-  colnames(peak_sequence_file) = c("asm_chr", "asm_start", "asm_end", "cons_peak_id", "seq")
-  peak_sequence_file$asm_peak_id = paste0(peak_sequence_file$asm_chr, "_", peak_sequence_file$asm_start, "_", peak_sequence_file$asm_end)
-}
-
-tbl$cons_chr = apply(tbl[,"consensus_peak_id",drop=F], 1, return_chr)
-tbl$cons_start = as.numeric(apply(tbl[,"consensus_peak_id",drop=F], 1, return_start))
-tbl$cons_end = as.numeric(apply(tbl[,"consensus_peak_id",drop=F], 1, return_end))
-
-tbl$fire_cov_OV_cov = tbl$fire_coverage/tbl$coverage
-
-return_asm=function(samp_id, samp_tbl){
-  temp_split = strsplit(samp_id, "_")[[1]]
-  temp_graph_asm = paste0(temp_split[length(temp_split)-1], "_", temp_split[length(temp_split)])
-  return(samp_tbl[which(samp_tbl$graph_asm == temp_graph_asm),]$asm)
-}
-
-tbl$asm = apply(tbl[,"sample_id",drop=F],1,return_asm, samp_tbl = sample_prefix_file)
-
+## each sample_id's run, graph assembly name and haplotype, from the table the Snakefile writes (sample_id
+## is run_graphAsm, but the name isn't split, so run and graph names can be anything)
 unique_sample_id = unique(tbl$sample_id)
-
-updated_tbl = data.frame()
-
-for(i in 1:length(unique_sample_id)){
-  temp_sample_id = unique_sample_id[i]
-  print(temp_sample_id)
-  tbl_sub = tbl[which(tbl$sample_id == temp_sample_id),]
-  temp_asm = unique(tbl_sub$asm)
-  if(length(temp_asm) > 1){
-    print("Move than one assembly!!")
-  }
-  temp_trans_peaks = trans_peaks[which(grepl(temp_asm, trans_peaks$chr)),]
-  
-  temp_tbl_sub_NA = tbl_sub[which(tbl_sub$score == -2),]
-  temp_tbl_sub_NotNA = tbl_sub[which(tbl_sub$score != -2),]
-  if(nrow(temp_trans_peaks) != nrow(temp_tbl_sub_NotNA)){
-    print("Row numbers not matching")
-  }
-  temp_trans_peaks_ord = temp_trans_peaks[match(temp_tbl_sub_NotNA$consensus_peak_id,temp_trans_peaks$cons_peak_id),]
-  temp_tbl_sub_NotNA$asm_chr = temp_trans_peaks_ord$chr
-  temp_tbl_sub_NotNA$asm_start = temp_trans_peaks_ord$start
-  temp_tbl_sub_NotNA$asm_end = temp_trans_peaks_ord$end
-  temp_tbl_sub_NA$asm_chr = NA
-  temp_tbl_sub_NA$asm_start = NA
-  temp_tbl_sub_NA$asm_end = NA
-  updated_tbl = as.data.frame(rbind(updated_tbl, temp_tbl_sub_NotNA, temp_tbl_sub_NA))
+sample_ids = fread(sample_ids_file, header = FALSE, col.names = c("sample_id", "run", "graph_asm", "haplotype"),
+                   colClasses = c("character", "character", "character", "integer"))
+m = match(unique_sample_id, sample_ids$sample_id)
+if(anyNA(m)){
+  stop("these sample_ids are missing from ", sample_ids_file, ": ", paste(head(unique_sample_id[is.na(m)]), collapse = ", "))
 }
+sample_graph_asm = sample_ids$graph_asm[m]
+sample_asm = sample_prefix_file$asm[match(sample_graph_asm, sample_prefix_file$graph_asm)]
+sample_run = sample_ids$run[m]
+tbl_sample_idx = match(tbl$sample_id, unique_sample_id)
+## sample_name and haplotype go in the table, so downstream code can pair a run's two haplotypes without
+## parsing sample_id
+tbl$sample_name = sample_run[tbl_sample_idx]
+tbl$haplotype = sample_ids$haplotype[m][tbl_sample_idx]
+tbl$asm = sample_asm[tbl_sample_idx]
+
+## rows are grouped by sample (in input order); within a sample, transferred peaks come
+## first and peaks that could not be transferred (score -2) last
+transferred = tbl$score != -2
+row_order = order(tbl_sample_idx, !transferred, seq_len(nrow(tbl)))
+row_order = row_order[!is.na(transferred[row_order])]
+updated_tbl = tbl[row_order, ]
+rownames(updated_tbl) = NULL
+rm(tbl)
+updated_sample_idx = tbl_sample_idx[row_order]
+transferred = transferred[row_order]
+rm(tbl_sample_idx, row_order)
+
+## each transferred consensus peak gets the coordinates of its first copy on that assembly
+## (assemblies are matched to contig names the same way as before: grepl of the asm name)
+updated_tbl$asm_chr = NA_character_
+updated_tbl$asm_start = NA_integer_
+updated_tbl$asm_end = NA_integer_
+trans_contigs = unique(trans_peaks$chr)
+for(temp_asm in unique(sample_asm)){
+  print(temp_asm)
+  temp_trans_peaks = trans_peaks[which(trans_peaks$chr %in% trans_contigs[grepl(temp_asm, trans_contigs)]),]
+  rows = which(transferred & updated_tbl$asm == temp_asm)
+  m = match(updated_tbl$consensus_peak_id[rows], temp_trans_peaks$cons_peak_id)
+  updated_tbl$asm_chr[rows] = temp_trans_peaks$chr[m]
+  updated_tbl$asm_start[rows] = temp_trans_peaks$start[m]
+  updated_tbl$asm_end[rows] = temp_trans_peaks$end[m]
+}
+rm(trans_peaks, transferred)
 
 updated_tbl$asm_peak_id = paste0(updated_tbl$asm_chr, "_", updated_tbl$asm_start, "_", updated_tbl$asm_end)
 
-### add hg38 info
+### add secondary reference info
+## column names: secondary_ref_chr_<name>, secondary_ref_start_<name>, secondary_ref_end_<name>, exists_in_secondary_ref_<name>
+if(has_secondary_ref){
+  progress("adding secondary reference info")
+  sec_cols = paste0(c("secondary_ref_chr_", "secondary_ref_start_", "secondary_ref_end_"), secondary_ref_name)
+  sec_file$cons_chr = id_chr(sec_file$consensus_peak_id)
+  sec_file$cons_start = as.numeric(id_start(sec_file$consensus_peak_id))
+  sec_file$cons_end = as.numeric(id_end(sec_file$consensus_peak_id))
 
-### THIS IS A TEST FILE FROM A DIFFERENT DATASET
-#hg38_file=read.table("/Users/minkinaa/Documents/StergachisLab/projects/HLA_peak_assignment/test_files/All_HPRC_peaks_NewGraph_w_HG002_All_consensus_peaks_moved_to_GRCh38.bed", sep="\t", header=F, stringsAsFactors = F, comment.char = "")
-#colnames(hg38_file) = c("hg38_chr", "hg38_start", "hg38_end", "consensus_peak_id")
+  sec_file$cons_peak_length = sec_file$cons_end - sec_file$cons_start
+  sec_file$sec_peak_length = sec_file$sec_end - sec_file$sec_start
 
-hg38_file$cons_chr = apply(hg38_file[,"consensus_peak_id",drop=F], 1, return_chr)
-hg38_file$cons_start = as.numeric(apply(hg38_file[,"consensus_peak_id",drop=F], 1, return_start))
-hg38_file$cons_end = as.numeric(apply(hg38_file[,"consensus_peak_id",drop=F], 1, return_end))
+  ## same length filter as for the original peaks: drop locations whose length changed by more than length_change_filter
+  sec_file$length_change = abs(sec_file$sec_peak_length-sec_file$cons_peak_length)/sec_file$cons_peak_length
 
-hg38_file$cons_peak_length = hg38_file$cons_end - hg38_file$cons_start
-hg38_file$hg38_peak_length = hg38_file$hg38_end - hg38_file$hg38_start
+  sec_file_pass_filt = sec_file[which(sec_file$length_change <= length_change_filter),]
+  sec_file_pass_filt_for_merge = sec_file_pass_filt[,c(1:4)]
+  colnames(sec_file_pass_filt_for_merge)[1:3] = sec_cols
+  if(anyDuplicated(sec_file_pass_filt_for_merge$consensus_peak_id) == 0){
+    ## one secondary reference location per consensus peak, so a lookup gives the same rows as a join
+    m = match(updated_tbl$consensus_peak_id, sec_file_pass_filt_for_merge$consensus_peak_id)
+    for(col in sec_cols){
+      updated_tbl[[col]] = sec_file_pass_filt_for_merge[[col]][m]
+    }
+  } else {
+    updated_tbl <- left_join(updated_tbl, sec_file_pass_filt_for_merge, by = "consensus_peak_id")
+    updated_sample_idx = match(updated_tbl$sample_id, unique_sample_id)
+  }
+  sec_exists_col = paste0("exists_in_secondary_ref_", secondary_ref_name)
+  updated_tbl[[sec_exists_col]] = !is.na(updated_tbl[[sec_cols[1]]])
+  rm(sec_file, sec_file_pass_filt, sec_file_pass_filt_for_merge)
+}
 
-hg38_file$length_diff = abs(hg38_file$hg38_peak_length-hg38_file$cons_peak_length)
-hg38_file$percent_diff = hg38_file$length_diff/hg38_file$cons_peak_length*100
-
-hg38_file_pass_filt = hg38_file[which(hg38_file$percent_diff < 20),]
-hg38_file_pass_filt_for_merge = hg38_file_pass_filt[,c(1:4)]
-updated_tbl <- left_join(updated_tbl, hg38_file_pass_filt_for_merge, by = "consensus_peak_id")
-updated_tbl$exists_in_hg38 = FALSE
-updated_tbl[which(!is.na(updated_tbl$hg38_chr)),]$exists_in_hg38 = TRUE
-
-## add info about whether original peak existed
-updated_tbl$overlaps_original_called_peak=FALSE
-updated_tbl[which(updated_tbl$asm_peak_id %in% orig_peak_trans_peak_intersect$trans_peak_id),]$overlaps_original_called_peak=TRUE
+## add info about whether this run's own original peaks overlap the transferred peak
+progress("adding original peak overlaps")
+trans_peak_ids = unique(orig_peak_trans_peak_intersect$trans_peak_id)
+orig_keys = pair_key(match(orig_peak_trans_peak_intersect$sample_id, sample_run),
+                     match(orig_peak_trans_peak_intersect$trans_peak_id, trans_peak_ids), length(trans_peak_ids))
+row_keys = pair_key(match(sample_run, sample_run)[updated_sample_idx],
+                    match(updated_tbl$asm_peak_id, trans_peak_ids), length(trans_peak_ids))
+updated_tbl$overlaps_original_called_peak = !is.na(row_keys) & row_keys %in% orig_keys
+rm(orig_peak_trans_peak_intersect, orig_keys, row_keys)
 
 ## add multiple to one info
 
-surj_peak_cons_peak_intersect$chr_orig = apply(surj_peak_cons_peak_intersect[,"peak_id_orig",drop = F], 1, return_chr)
-surj_peak_cons_peak_intersect$start_orig = apply(surj_peak_cons_peak_intersect[,"peak_id_orig",drop = F], 1, return_start)
-surj_peak_cons_peak_intersect$end_orig = apply(surj_peak_cons_peak_intersect[,"peak_id_orig",drop = F], 1, return_end)
+progress("counting overlapping original peaks")
+## peak_id_orig is chrom_start_end-run, so drop "-run" before parsing the coordinates.
+## The run is sample_chr_id, so this works even if run or chrom names contain "-"
+run_suffix = paste0("-", surj_peak_cons_peak_intersect$sample_chr_id)
+stopifnot(endsWith(surj_peak_cons_peak_intersect$peak_id_orig, run_suffix))
+surj_peak_cons_peak_intersect$coords_orig = substr(surj_peak_cons_peak_intersect$peak_id_orig, 1, nchar(surj_peak_cons_peak_intersect$peak_id_orig) - nchar(run_suffix))
+surj_peak_cons_peak_intersect$chr_orig = id_chr(surj_peak_cons_peak_intersect$coords_orig)
+surj_peak_cons_peak_intersect$start_orig = id_start(surj_peak_cons_peak_intersect$coords_orig)
+surj_peak_cons_peak_intersect$end_orig = id_end(surj_peak_cons_peak_intersect$coords_orig)
 
 surj_peak_cons_peak_intersect$samp_chr_consPeak = paste0(surj_peak_cons_peak_intersect$sample_chr_id, "-", surj_peak_cons_peak_intersect$chr_orig, "-", surj_peak_cons_peak_intersect$peak_id_cons)
 
@@ -202,18 +215,18 @@ surj_peak_cons_peak_intersect_wHash = surj_peak_cons_peak_intersect[which(grepl(
 surj_peak_cons_peak_intersect_NoHash = surj_peak_cons_peak_intersect[which(!(grepl("#",surj_peak_cons_peak_intersect$chr_orig))),]
 
 if(nrow(surj_peak_cons_peak_intersect_wHash) > 0){
-  surj_peak_cons_peak_intersect_wHash$asm = apply(surj_peak_cons_peak_intersect_wHash[,"chr_orig", drop = FALSE], 1, return_chr_w_hash)
+  surj_peak_cons_peak_intersect_wHash$asm = id_chr_w_hash(surj_peak_cons_peak_intersect_wHash$chr_orig)
 }
 
 if(nrow(surj_peak_cons_peak_intersect_NoHash) > 0){
   nonHash_asms = sample_prefix_file[which(!grepl("#",sample_prefix_file$asm)),]$asm
-  
+
   surj_peak_cons_peak_intersect_NoHash$asm = "NONE"
-  
+
   for(i in 1:length(nonHash_asms)){
     temp_asm = nonHash_asms[i]
     print(temp_asm)
-    surj_peak_cons_peak_intersect_NoHash[which(grepl(temp_asm,surj_peak_cons_peak_intersect_NoHash$chr_orig)),]$asm = temp_asm
+    surj_peak_cons_peak_intersect_NoHash$asm[which(grepl(temp_asm,surj_peak_cons_peak_intersect_NoHash$chr_orig))] = temp_asm
   }
   if(nrow(surj_peak_cons_peak_intersect_wHash) > 0){
     surj_peak_cons_peak_intersect = as.data.frame(rbind(surj_peak_cons_peak_intersect_wHash, surj_peak_cons_peak_intersect_NoHash))
@@ -229,133 +242,130 @@ surj_peak_cons_peak_intersect = left_join(surj_peak_cons_peak_intersect, sample_
 
 surj_peak_cons_peak_intersect$sample_graphHap_peak = paste0(surj_peak_cons_peak_intersect$sample_chr_id, "_", surj_peak_cons_peak_intersect$graph_asm, "-", surj_peak_cons_peak_intersect$peak_id_cons)
 
-temp = as.data.frame(table(surj_peak_cons_peak_intersect$sample_graphHap_peak))
-temp_filt = temp[which(temp$Freq > 1),]
-temp_filt_2 = temp[which(temp$Freq == 2),]
-temp_filt_gr2 = temp[which(temp$Freq >2),]
+## the rows of updated_tbl are keyed by (sample_id, consensus_peak_id); sample_graphHap_peak
+## is the same pair pasted together, so give both tables the same numeric key
+unique_cons_peak_id = unique(updated_tbl$consensus_peak_id)
+updated_tbl$sample_id_peak_id_TEMP_COL = pair_key(updated_sample_idx, match(updated_tbl$consensus_peak_id, unique_cons_peak_id), length(unique_cons_peak_id))
+rm(updated_sample_idx)
+surj_peak_cons_peak_intersect$key = pair_key(match(paste0(surj_peak_cons_peak_intersect$sample_chr_id, "_", surj_peak_cons_peak_intersect$graph_asm), unique_sample_id),
+                                             match(surj_peak_cons_peak_intersect$peak_id_cons, unique_cons_peak_id), length(unique_cons_peak_id))
 
-surj_peak_cons_peak_intersect_mult_to_one = surj_peak_cons_peak_intersect[which(surj_peak_cons_peak_intersect$sample_graphHap_peak %in% temp_filt$Var1),]
-surj_peak_cons_peak_intersect_mult_to_one = surj_peak_cons_peak_intersect_mult_to_one[order(as.numeric(surj_peak_cons_peak_intersect_mult_to_one$start_orig)),]
-surj_peak_cons_peak_intersect_mult_to_one = surj_peak_cons_peak_intersect_mult_to_one[order(surj_peak_cons_peak_intersect_mult_to_one$sample_graphHap_peak),]
+## how many separate original peaks each sample has on each consensus peak (orig_peak_overlap_counts.R)
+surj_peak_cons_peak_intersect$group = surj_peak_cons_peak_intersect$sample_graphHap_peak
+counts = count_orig_peaks_per_consensus_peak(surj_peak_cons_peak_intersect)
+true_mult_to_one_keys = counts$pair_keys
+gr2_keys = counts$gr2_keys
+gr2_num_peaks = counts$gr2_num_peaks
+all_peaks_summary = counts$summary
+rm(counts)
 
-surj_peak_cons_peak_intersect_mult_to_one_2 = surj_peak_cons_peak_intersect_mult_to_one[which(surj_peak_cons_peak_intersect_mult_to_one$sample_graphHap_peak %in% temp_filt_2$Var1),]
-surj_peak_cons_peak_intersect_mult_to_one_gr2 = surj_peak_cons_peak_intersect_mult_to_one[which(surj_peak_cons_peak_intersect_mult_to_one$sample_graphHap_peak %in% temp_filt_gr2$Var1),]
-
-aggreg_by_cons_peak_2 = as.data.frame(surj_peak_cons_peak_intersect_mult_to_one_2 %>%
-                                        group_by(sample_graphHap_peak) %>%
-                                        summarise(vals = list(c(rbind(peak_id_orig, chr_orig, start_orig, end_orig))), .groups="drop") %>%
-                                        unnest_wider(vals, names_sep = ""))
-
-if(nrow(aggreg_by_cons_peak_2) > 0){
-  colnames(aggreg_by_cons_peak_2) = c("sample_graphHap_peak", "peak_id_1", "orig_chr_1","orig_start_1", "orig_end_1", "peak_id_2", "orig_chr_2","orig_start_2", "orig_end_2")
-  cols_to_convert <- c("orig_start_1", "orig_end_1", "orig_start_2", "orig_end_2")
-  aggreg_by_cons_peak_2[cols_to_convert] <- lapply(aggreg_by_cons_peak_2[cols_to_convert], as.numeric)
-  aggreg_by_cons_peak_2$start_diff =aggreg_by_cons_peak_2$orig_start_2-aggreg_by_cons_peak_2$orig_start_1
-  aggreg_by_cons_peak_2$space_between_peaks = aggreg_by_cons_peak_2$orig_start_2-aggreg_by_cons_peak_2$orig_end_1
-  aggreg_by_cons_peak_2$share_orig_chr = FALSE
-  aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$orig_chr_1 == aggreg_by_cons_peak_2$orig_chr_2),]$share_orig_chr = TRUE
-  
-  aggreg_by_cons_peak_2$surj_peak_length = apply(aggreg_by_cons_peak_2[,"sample_graphHap_peak",drop = F],1,return_surj_peak_length)
-  
-  aggreg_by_cons_peak_2$dist_less_than_cons_peak = FALSE
-  aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$space_between_peaks < aggreg_by_cons_peak_2$surj_peak_length),]$dist_less_than_cons_peak = TRUE
-  
-  aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE = aggreg_by_cons_peak_2[which(aggreg_by_cons_peak_2$dist_less_than_cons_peak == FALSE | aggreg_by_cons_peak_2$share_orig_chr == FALSE),]
-  aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$surj_chr = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,"sample_graphHap_peak",drop = F], 1, return_surj_chr)
-  aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$cons_peak = apply(aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE[,"sample_graphHap_peak",drop = F], 1, return_cons_peak)
-  
-}
-
-updated_tbl$sample_id_peak_id_TEMP_COL = paste0(updated_tbl$sample_id, "-", updated_tbl$consensus_peak_id)
-
-### greater than 2:
-
-if(nrow(aggreg_by_cons_peak_2) > 0){
-  surj_peak_cons_peak_intersect_mult_to_one_gr2$cons_peak_length = surj_peak_cons_peak_intersect_mult_to_one_gr2$end_cons-surj_peak_cons_peak_intersect_mult_to_one_gr2$start_cons
-  
-  unique_sample_peaks = unique(surj_peak_cons_peak_intersect_mult_to_one_gr2$sample_graphHap_peak)
-  
-  num_peaks_col = c()
-  peak_names = c()
-  
-  for(i in 1:length(unique_sample_peaks)){
-    if(i%%100 == 0){
-      print(i)
-    }
-    temp_samp_peak = unique_sample_peaks[i]
-    temp_tbl = surj_peak_cons_peak_intersect_mult_to_one_gr2[which(surj_peak_cons_peak_intersect_mult_to_one_gr2$sample_graphHap_peak == temp_samp_peak),]
-    temp_tbl_ord = temp_tbl[order(temp_tbl$start_orig),]
-    cons_len = as.numeric(temp_tbl_ord[1,"cons_peak_length"])
-    num_peaks = 1
-    for(i in 2:nrow(temp_tbl)){
-      if(as.numeric(temp_tbl[i,"start_orig"])-as.numeric(temp_tbl[i-1,"end_orig"]) > cons_len){
-        num_peaks = num_peaks + 1
-      }
-    }
-    all_peaks = paste(temp_tbl_ord$peak_id_orig, collapse = ",")
-    peak_names = c(peak_names, all_peaks)
-    num_peaks_col = c(num_peaks_col, num_peaks)
-  }
-  
-  peak_id_and_num_peaks = as.data.frame(cbind(unique_sample_peaks, num_peaks_col, peak_names))
-  colnames(peak_id_and_num_peaks) = c("sample_graphHap_peak", "num_ov_peaks", "all_overlapping_peaks")
-} else {
-  peak_id_and_num_peaks <- data.frame(
-    sample_graphHap_peak = NULL,
-    num_ov_peaks = NULL,
-    all_overlapping_peaks = NULL
-  )
-}
-
-
-all_peaks_summary = surj_peak_cons_peak_intersect %>%
-  group_by(sample_graphHap_peak) %>%
-  summarise(all_orig_overlapping_peaks = paste(peak_id_orig, collapse = ","))
-all_peaks_summary = as.data.frame(all_peaks_summary)
-
+progress("putting the table together")
 updated_tbl$num_overlapping_orig_peaks = 0
-updated_tbl[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% surj_peak_cons_peak_intersect$sample_graphHap_peak),]$num_overlapping_orig_peaks = 1
+updated_tbl$num_overlapping_orig_peaks[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% surj_peak_cons_peak_intersect$key)] = 1
+updated_tbl$num_overlapping_orig_peaks[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% true_mult_to_one_keys)] = 2
 
-if(nrow(aggreg_by_cons_peak_2) > 0){
-  updated_tbl[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% aggreg_by_cons_peak_2_TRUE_MULT_TO_ONE$sample_graphHap_peak),]$num_overlapping_orig_peaks = 2
+## rows with 3+ overlapping peaks get their count and move after the other rows
+m = match(updated_tbl$sample_id_peak_id_TEMP_COL, gr2_keys)
+in_gr2 = !is.na(m)
+updated_tbl$num_overlapping_orig_peaks[in_gr2] = gr2_num_peaks[m[in_gr2]]
+
+m = match(updated_tbl$sample_id_peak_id_TEMP_COL, all_peaks_summary$key)
+non0 = updated_tbl$num_overlapping_orig_peaks > 0
+updated_tbl$orig_peaks_overlapping_consensus = ifelse(non0, all_peaks_summary$all_orig_overlapping_peaks[m], NA)
+
+## rows with overlapping peaks first, then the rest; each in the order above
+final_order = c(which(!in_gr2), which(in_gr2))
+final_order = c(final_order[non0[final_order]], final_order[!non0[final_order]])
+rm(m, in_gr2, non0)
+setDT(updated_tbl)
+updated_tbl[, sample_id_peak_id_TEMP_COL := NULL]
+setcolorder(updated_tbl, c("sample_id", "sample_name", "haplotype"))
+updated_tbl = updated_tbl[final_order]
+
+## sequences are in _transferred_cons_peaks_native_sequences_from_main_output.bed.gz, keyed by asm_peak_id
+progress("writing the table")
+## fwrite rounds the 15th digit differently from write.table, so write the ratio as R formats it
+u = unique(updated_tbl$fire_cov_OV_cov)
+updated_tbl[, fire_cov_OV_cov := as.character(u)[match(fire_cov_OV_cov, u)]]
+## gzipped because of the .gz name; the table is large (~44 GB for 59 runs uncompressed)
+fwrite(updated_tbl, paste0(output_dir, prefix, "_final_tbl_w_metadata.tsv.gz"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
+
+progress("combining previous peak files")
+## a peak repeated with the same answer is fine; one with different answers in different files is an error
+previous_peaks = unique(rbindlist(lapply(previous_peak_files, fread, colClasses = "character")))
+conflicts = previous_peaks[, .N, by = consensus_peak_id][N > 1]
+if(nrow(conflicts) > 0){
+  print(previous_peaks[consensus_peak_id %in% conflicts$consensus_peak_id])
+  stop(nrow(conflicts), " consensus peaks have different chr/previous_peak values in different files")
 }
+## in additional_outputs/, with the previous peak checks
+dir.create(paste0(output_dir, "additional_outputs"), showWarnings = FALSE)
+fwrite(previous_peaks, paste0(output_dir, "additional_outputs/", prefix, "_previous_peaks_nonRef_chrs.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
 
-updated_tbl_2_or_less = updated_tbl[which(!(updated_tbl$sample_id_peak_id_TEMP_COL %in% peak_id_and_num_peaks$sample_graphHap_peak)),]
-
-if(nrow(aggreg_by_cons_peak_2) > 0){
-  updated_tbl_gr_2 = updated_tbl[which(updated_tbl$sample_id_peak_id_TEMP_COL %in% peak_id_and_num_peaks$sample_graphHap_peak),]
-  peak_id_and_num_peaks_ord = peak_id_and_num_peaks[match(updated_tbl_gr_2$sample_id_peak_id_TEMP_COL,peak_id_and_num_peaks$sample_graphHap_peak),]
-  updated_tbl_gr_2$num_overlapping_orig_peaks = peak_id_and_num_peaks_ord$num_ov_peaks
-  updated_tbl = as.data.frame(rbind(updated_tbl_2_or_less, updated_tbl_gr_2))
-} else {
-  updated_tbl = updated_tbl_2_or_less
+progress("summarizing each consensus peak")
+## one row per consensus peak; secondary reference info is the same in every row of a peak, so it comes
+## from the peak's first row
+peak_summary = updated_tbl[, .(cons_chr = cons_chr[1],
+                               cons_start = cons_start[1],
+                               cons_end = cons_end[1]),
+                           by = consensus_peak_id]
+if(has_secondary_ref){
+  m = match(peak_summary$consensus_peak_id, updated_tbl$consensus_peak_id)
+  for(col in c(sec_exists_col, sec_cols)){
+    peak_summary[, (col) := updated_tbl[[col]][m]]
+  }
 }
+## exists_in_ref, ref_chr, ref_start and ref_end are renamed with the main reference's name when written
+peak_summary[, exists_in_ref := cons_chr %in% ref_chrs]
+## non-reference peaks were called on an assembly in the graph, e.g. SMHT004#1#haplotype1-0000001 -> SMHT004_1
+## and chr10_MATERNAL -> HG002_1
+peak_summary[, consensus_peak_asm := ifelse(exists_in_ref, main_ref_name,
+                                            sample_prefix_file$graph_asm[match(contig_asm(cons_chr, sample_prefix_file$asm), sample_prefix_file$asm)])]
+m = match(peak_summary$consensus_peak_id, previous_peaks$consensus_peak_id)
+peak_summary[, chr := ifelse(exists_in_ref, cons_chr, previous_peaks$chr[m])]
+## used for ordering below, then dropped: the order and the two at_*_of_chr columns carry it
+peak_summary[, previous_peak := ifelse(exists_in_ref, NA_character_, previous_peaks$previous_peak[m])]
+## a reference peak's main reference coordinates are its own; non-reference peaks don't move to the main reference
+peak_summary[, `:=`(ref_chr = fifelse(exists_in_ref, cons_chr, NA_character_),
+                    ref_start = fifelse(exists_in_ref, cons_start, NA),
+                    ref_end = fifelse(exists_in_ref, cons_end, NA))]
 
-#updated_tbl = as.data.frame(rbind(updated_tbl_2_or_less, updated_tbl_gr_2))
+progress("ordering peaks along each chromosome")
+## chr_slot: main reference peak k on a chromosome has slot 2k, and the non-reference peaks between main
+## reference peaks k and k+1 share slot 2k+1 (AT_START is 1, AT_END the slot after the last main reference peak).
+## chr_order numbers every peak 1..X along its chromosome. Within a shared slot, peaks are ordered by
+## assembly, contig and position along the contig (reversed where the contig runs against the main reference), so
+## only the order of peaks from the same contig is real. AMB peaks have no chromosome, so neither column
+ref_rank = peak_summary[exists_in_ref == TRUE, .(consensus_peak_id, chr, ref_start, ref_end)]
+setorder(ref_rank, chr, ref_start, ref_end)
+ref_rank[, rank := seq_len(.N), by = chr]
+n_ref = ref_rank[, .N, by = chr]
+peak_summary[, chr_slot := NA_integer_]
+peak_summary[exists_in_ref == TRUE, chr_slot := 2L * ref_rank$rank[match(consensus_peak_id, ref_rank$consensus_peak_id)]]
+peak_summary[exists_in_ref == FALSE, chr_slot := 2L * ref_rank$rank[match(previous_peak, ref_rank$consensus_peak_id)] + 1L]
+peak_summary[previous_peak == "AT_START", chr_slot := 1L]
+peak_summary[previous_peak == "AT_END", chr_slot := 2L * n_ref$N[match(chr, n_ref$chr)] + 1L]
+unslotted = peak_summary[is.na(chr_slot) & !is.na(chr) & chr != "AMB"]
+if(nrow(unslotted) > 0){
+  print(head(unslotted))
+  stop(nrow(unslotted), " peaks with a chromosome could not be ordered")
+}
+peak_summary[, along_contig := fifelse(!exists_in_ref & previous_peaks$orientation[m] %in% "R", -cons_start, cons_start)]
+ordered = peak_summary[!is.na(chr_slot), .(consensus_peak_id, chr, chr_slot, consensus_peak_asm, cons_chr, along_contig)]
+setorder(ordered, chr, chr_slot, consensus_peak_asm, cons_chr, along_contig)
+ordered[, chr_order := seq_len(.N), by = chr]
+peak_summary[, chr_order := ordered$chr_order[match(consensus_peak_id, ordered$consensus_peak_id)]]
+## non-reference peaks before the assembly's first / after its last main reference peak on the chromosome
+## (AT_START / AT_END); NA for AMB peaks, which have no chromosome
+peak_summary[, `:=`(at_start_of_chr = fifelse(is.na(chr_slot), NA, previous_peak %in% "AT_START"),
+                    at_end_of_chr = fifelse(is.na(chr_slot), NA, previous_peak %in% "AT_END"))]
 
-updated_tbl_non0 = updated_tbl[which(updated_tbl$num_overlapping_orig_peaks > 0),]
-updated_tbl_0 = updated_tbl[which(updated_tbl$num_overlapping_orig_peaks == 0),]
-
-nrow(updated_tbl_non0) == nrow(all_peaks_summary)
-
-all_peaks_summary_ord = all_peaks_summary[match(updated_tbl_non0$sample_id_peak_id_TEMP_COL,all_peaks_summary$sample_graphHap_peak),]
-
-updated_tbl_non0$orig_peaks_overlapping_consensus = all_peaks_summary_ord$all_orig_overlapping_peaks
-updated_tbl_0$orig_peaks_overlapping_consensus = NA
-
-updated_tbl = as.data.frame(rbind(updated_tbl_non0,updated_tbl_0))
-
-#write.table(updated_tbl, paste0(output_dir, prefix, "_final_tbl_w_metadata.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t")
-#updated_tbl = read.table("/mmfs1/gscratch/stergachislab/HPRC/fiber-seq-pilot/HLA_graphs/peak_calling_all_chrs/All_HPRC_peaks_NewGraph_w_HG002/All_HPRC_peaks_NewGraph_w_HG002_final_tbl_w_metadata.tsv", header = T, sep = "\t", stringsAsFactors = F, comment.char = "")
-#sum(peak_sequence_file$asm_peak_id %in% updated_tbl$asm_peak_id)
-#nrow(peak_sequence_file)
-
-peak_sequence_file_2col = unique(peak_sequence_file[,c("asm_peak_id", "seq")])
-
-updated_tbl = left_join(updated_tbl,peak_sequence_file_2col, by = "asm_peak_id")
-
-updated_tbl <- updated_tbl %>%
-  dplyr::select(-sample_id_peak_id_TEMP_COL)
-
-write.table(updated_tbl, paste0(output_dir, prefix, "_final_tbl_w_metadata.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t")
-
+peak_summary[, c("cons_chr", "cons_start", "cons_end", "along_contig", "previous_peak") := NULL]
+setnames(peak_summary, c("exists_in_ref", "ref_chr", "ref_start", "ref_end"),
+         paste0(c("exists_in_main_ref_", "main_ref_chr_", "main_ref_start_", "main_ref_end_"), main_ref_name))
+setcolorder(peak_summary, c("consensus_peak_id", "consensus_peak_asm", "chr",
+                            paste0(c("exists_in_main_ref_", "main_ref_chr_", "main_ref_start_", "main_ref_end_"), main_ref_name),
+                            if(has_secondary_ref) c(sec_exists_col, sec_cols),
+                            "chr_slot", "chr_order", "at_start_of_chr", "at_end_of_chr"))
+fwrite(peak_summary, paste0(output_dir, prefix, "_consensus_peak_summary.tsv"), col.names = TRUE, row.names = FALSE, quote = F, sep = "\t", na = "NA")
+progress("done")

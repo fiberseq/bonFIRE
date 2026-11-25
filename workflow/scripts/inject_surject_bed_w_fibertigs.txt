@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 bed=$1
 graph=$2
@@ -16,6 +17,7 @@ bed_final=${12}
 scripts_dir=${13}
 
 asm_to_surject_onto=${14}
+threads=${15}
 
 echo "Making fibertigs bam"
 $PATH_TO_FT pg-inject $fasta -s $ft_param \
@@ -27,11 +29,28 @@ ${graph_prefixes_input} \
 $fibertigs_out \
 $prepare_for_inject_out
 
+echo "Checking that every contig with peaks is in the graph"
+# vg inject crashes on a contig that isn't a graph path, and its crash handler can hang until the
+# job's time limit, so stop here with the missing names instead
+# (no process substitution: the Snakefile runs this with sh, which doesn't allow it)
+graph_paths=$(mktemp)
+vg paths -L -x $graph > $graph_paths
+# grep exits 1 when every contig is found, which is the passing case
+missing=$(samtools view -@ $threads $prepare_for_inject_out | cut -f3 | uniq | LC_ALL=C sort -u | \
+    { grep -vxF -f $graph_paths || [ $? -eq 1 ]; })
+rm -f $graph_paths
+if [ -n "$missing" ]; then
+    echo "These contigs have peaks but are not paths in $graph:"
+    echo "$missing" | head -20
+    echo "($(echo "$missing" | wc -l) in total)"
+    exit 1
+fi
+
 echo "Running inject"
-vg inject -x $graph -o gam -t32 $prepare_for_inject_out > $gam
+vg inject -x $graph -o gam -t $threads $prepare_for_inject_out > $gam
 
 echo "Running surject"
-vg surject -x $graph  -b $gam -n $asm_to_surject_onto  > $surjected
+vg surject -x $graph -t $threads -b $gam -n $asm_to_surject_onto  > $surjected
 
 echo "Processing surjected file"
 python ${scripts_dir}/260121_peakClust_process_after_surject.py \
@@ -40,7 +59,8 @@ $surjected \
 $surj_final
 
 echo "Extracting bed"
-$PATH_TO_FT pg-inject $surj_final --extract > $bed_final
+# vg surject writes reads in thread order, so sort to make the output the same on every run
+$PATH_TO_FT pg-inject $surj_final --extract | LC_ALL=C sort -k1,1 -k2,2n -k3,3n -k4,4 > $bed_final
 
 
 

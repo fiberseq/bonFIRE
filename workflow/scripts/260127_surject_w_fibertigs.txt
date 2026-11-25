@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 graph=$1
 PATH_TO_FT=$2
@@ -11,9 +12,10 @@ bed_final=$7
 scripts_dir=$8
 
 asm_to_surject_onto=$9
+threads=${10}
 
 echo "Running surject"
-vg surject -x $graph  -b $gam -n $asm_to_surject_onto  > $surjected
+vg surject -x $graph -t $threads -b $gam -n $asm_to_surject_onto  > $surjected
 
 echo "Processing surjected file"
 python ${scripts_dir}/260121_peakClust_process_after_surject.py \
@@ -22,4 +24,5 @@ $surjected \
 $surj_final
 
 echo "Extracting bed"
-$PATH_TO_FT pg-inject $surj_final --extract > $bed_final
+# vg surject writes reads in thread order, so sort to make the output the same on every run
+$PATH_TO_FT pg-inject $surj_final --extract | LC_ALL=C sort -k1,1 -k2,2n -k3,3n -k4,4 > $bed_final

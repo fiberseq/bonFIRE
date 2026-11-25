@@ -1,0 +1,5 @@
+sample_name	path_to_fire_output_folder	hap1_orig_subtag	hap2_orig_subtag	hap1_in_graph	hap2_in_graph	hap1_fasta_path	hap2_fasta_path
+DONOR1_liver	NA	h1	h2	DONOR1_1	DONOR1_2	/path/to/assemblies/DONOR1_hap1.fasta	/path/to/assemblies/DONOR1_hap2.fasta
+DONOR1_lung	NA	h1	h2	DONOR1_1	DONOR1_2	/path/to/assemblies/DONOR1_hap1.fasta	/path/to/assemblies/DONOR1_hap2.fasta
+DONOR2_liver	NA	DONOR2#1#	DONOR2#2#	DONOR2_1	DONOR2_2	/path/to/assemblies/DONOR2_hap1.fasta	/path/to/assemblies/DONOR2_hap2.fasta
+DONOR3_fibroblast	NA	PATERNAL	MATERNAL	DONOR3_1	DONOR3_2	/path/to/assemblies/DONOR3_paternal.fasta	/path/to/assemblies/DONOR3_maternal.fasta

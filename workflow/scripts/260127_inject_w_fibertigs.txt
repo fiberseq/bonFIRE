@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 bed=$1
 graph=$2
@@ -11,6 +12,7 @@ fibertigs_out=$7
 prepare_for_inject_out=$8
 gam=$9
 scripts_dir=${10}
+threads=${11}
 
 echo "Making fibertigs bam"
 $PATH_TO_FT pg-inject $fasta -s $ft_param \
@@ -23,5 +25,5 @@ $fibertigs_out \
 $prepare_for_inject_out
 
 echo "Running inject"
-vg inject -x $graph -o gam -t32 $prepare_for_inject_out > $gam
+vg inject -x $graph -o gam -t $threads $prepare_for_inject_out > $gam
 

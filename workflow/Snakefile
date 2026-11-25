@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import pandas as pd
 from snakemake.utils import min_version
 from pathlib import Path
@@ -35,30 +36,52 @@ WORKFLOW_DIR=workflow.basedir
 global_output_dir=config.get("output_dir")
 sample=config.get("prefix")
 input_file = config.get("input_file")
-graph=config.get("graph", "NA")
 PATH_TO_FT = config.get("ft_path", "ft")
-FT_PARAM = int(config.get("ft_param", 1000))
-chm13_fasta=config.get("CHM13_fasta_path")
-hg38_fasta=config.get("hg38_fasta_path")
-length_change_param=float(config.get("Peak_length_change_param", 1))
-TEMP_THREADS=int(config.get("threads", 32))
-SPLIT_GRAPH=config.get("split_graph", False)
 GRAPH_ONLY=config.get("make_graph_only", False)
-GRAPH_MEM=config.get("graph_mem", 300000)
-GRAPH_RUNTIME=config.get("graph_runtime", 1440)
+# shared_ref: every run was processed against the same haploid reference (main_reference_fasta), so no
+# graph is needed: consensus peaks are called on that reference directly (workflow/rules/shared_ref.smk).
+# Otherwise each run is on its own assembly and peaks move through a graph (workflow/rules/graph_mode.smk)
+SHARED_REF = config.get("shared_ref", False)
+MAIN_REF_FASTA = config.get("main_reference_fasta", config.get("CHM13_fasta_path"))
+if not MAIN_REF_FASTA:
+    sys.exit("Set main_reference_fasta in the config")
+if SHARED_REF and GRAPH_ONLY:
+    sys.exit("shared_ref and make_graph_only can't both be set: shared_ref runs don't use a graph")
 
-graphs_dir=f"{global_output_dir}/{sample}/graph"
+# a failed job is retried (restart-times in the profile) with twice the memory each time
+def mem_for(mem_mb):
+    return lambda wildcards, attempt: mem_mb * 2 ** (attempt - 1)
+
+# for rules that can run out of time: each retry gets this much more time
+def runtime_for(minutes):
+    return lambda wildcards, attempt: minutes * attempt
+
+# each rule writes its output here; failed jobs' logs are printed at the end of the run
+log_dir=f"{global_output_dir}/{sample}/logs"
 Path(f"{global_output_dir}/{sample}").mkdir(parents=True, exist_ok=True)
 
 input_tbl=pd.read_csv(input_file, sep=r"\s+", keep_default_na=False)
+# shared_ref runs only need these two columns; other columns are ignored there
+missing_cols = [c for c in ["sample_name", "path_to_fire_output_folder"] if c not in input_tbl.columns]
+if missing_cols:
+    sys.exit(f"The input file is missing these columns: {missing_cols}")
 
-print(input_tbl)
+# ft uses "|" and ";" inside its fa tag, and the sample name goes into peak_id
+bad_sample_names = [s for s in input_tbl["sample_name"] if any(c in s for c in "|;")]
+if bad_sample_names:
+    sys.exit(f"sample_name can't contain '|' or ';': {bad_sample_names}")
+
+# the one file in each FIRE output folder matching pattern; stops with every folder that has none
+def find_fire_files(pattern):
+    found = [next(Path(x).glob(pattern), None) for x in input_tbl["path_to_fire_output_folder"]]
+    missing = [f"{s}: {x}" for s, x, f in zip(input_tbl["sample_name"], input_tbl["path_to_fire_output_folder"], found) if f is None]
+    if missing:
+        sys.exit(f"No {pattern} file in these FIRE output folders:\n" + "\n".join(missing))
+    return [str(f) for f in found]
 
 if GRAPH_ONLY==False:
-    input_tbl["peaks_file"] = input_tbl["path_to_fire_output_folder"].apply(
-    lambda x: str(next(Path(x).glob("*peaks.bed.gz")))
-    )
-else: 
+    input_tbl["peaks_file"] = find_fire_files("*peaks.bed.gz")
+else:
     input_tbl["peaks_file"] = "NA"
 
 
@@ -70,111 +93,43 @@ PEAKS_FILES_AND_NAMES = list(
 )
 
 if GRAPH_ONLY==False:
-    input_tbl["pileup_path"] = input_tbl["path_to_fire_output_folder"].apply(
-        lambda x: str(next(Path(x).glob("*pileup.bed.gz")))
-    )
+    input_tbl["pileup_path"] = find_fire_files("*pileup.bed.gz")
 else:
     input_tbl["pileup_path"] = "NA"
 
-## make combined fasta and put and graph_prefixes_tbl
-hap1_fasta_tbl = input_tbl[
-    ["hap1_orig_subtag","hap1_in_graph", "hap1_fasta_path"]
-].drop_duplicates()
+# These are rule inputs and the Snakefile is re-read on every run and every cluster job,
+# so only rewrite them when the contents change. Otherwise the new mtime makes every
+# downstream output (including the graph) look out of date.
+def write_tsv_if_changed(df, path):
+    new_contents = df.to_csv(sep='\t', index=False, header=False)
+    if os.path.exists(path):
+        with open(path) as f:
+            if f.read() == new_contents:
+                return
+    with open(path, "w") as f:
+        f.write(new_contents)
 
-hap2_fasta_tbl = input_tbl[
-    ["hap2_orig_subtag","hap2_in_graph", "hap2_fasta_path"]
-].drop_duplicates()
-
-hap1_fasta_tbl.columns = ["hap_subtag","graph_prefix", "fasta_path"]
-hap2_fasta_tbl.columns = ["hap_subtag","graph_prefix", "fasta_path"]
-
-combined_fasta_tbl = pd.concat(
-    [hap1_fasta_tbl, hap2_fasta_tbl],
-    ignore_index=True
-).drop_duplicates()
-
-ALL_FASTAS=combined_fasta_tbl["fasta_path"].tolist()
-
-ref_fasta = {
-    'graph_prefix': ['CHM13', 'GRCh38'],
-    'fasta_path' : [chm13_fasta, hg38_fasta]
-}
-ref_fasta = pd.DataFrame(ref_fasta)
-
-combined_fasta_tbl_w_refs= pd.concat(
-    [combined_fasta_tbl[["graph_prefix", "fasta_path"]], ref_fasta],
-    ignore_index=True
-)
-
-combined_fasta_tbl_w_refs = pd.concat([
-    combined_fasta_tbl_w_refs.iloc[[-2]],   # second-to-last row
-    combined_fasta_tbl_w_refs.iloc[:-2],    # everything except the last two rows
-    combined_fasta_tbl_w_refs.iloc[[-1]]    # last row
-]).reset_index(drop=True)
-
-graph_input_file=f"{global_output_dir}/{sample}/{sample}_graph_input.tsv"
-combined_fasta_tbl_w_refs.to_csv(graph_input_file, sep='\t', index=False, header=False)
-
-graph_prefixes_input = f"{global_output_dir}/{sample}/{sample}_graph_prefixed_input.tsv"
-combined_fasta_tbl.to_csv(graph_prefixes_input, sep='\t', index=False, header=False)
-
-## wildcard definitions
-run_wildcards=input_tbl["sample_name"].values.tolist()
-asm_wildcards = input_tbl[["hap1_in_graph", "hap2_in_graph"]].values.flatten().tolist()
-
-wildcard_constraints:
-    asm="|".join(asm_wildcards),
-    run="|".join(run_wildcards)
-
-assemblies_surjected_onto_file=f"{global_output_dir}/{sample}/{sample}_list_of_surj_assemblies_in_order.txt"
-next_asm_file=f"{global_output_dir}/{sample}/next_asm.txt"
-
-pairs_1_3 = list(zip(input_tbl["sample_name"], input_tbl["hap1_in_graph"]))
-pairs_1_4 = list(zip(input_tbl["sample_name"], input_tbl["hap2_in_graph"]))
-
-all_sample_pileup_pairs = pairs_1_3 + pairs_1_4
-
-## Old stuff
-
-CHM13_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/CHM13_global_peaks_surjected_onto_asms/{sample}_CHM13_global_peaks_surjected_onto_{asm}.bed" for asm in asm_wildcards]
-NonCHM13_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/nonCHM13_global_peaks_surjected_onto_asms/{sample}_nonCHM13_global_peaks_surjected_onto_{asm}.bed" for asm in asm_wildcards]
-combined_global_peaks_surjected_onto_all_asm = [f"{global_output_dir}/{sample}/Combined_global_peaks_surjected_onto_asms/{sample}_ALL_global_peaks_surjected_onto_{asm}.bed" for asm in asm_wildcards]
-
-run_modified_pileup=[f"{global_output_dir}/{sample}/run_pileup_counts/{run}_{asm}/{run}_{asm}_modified_pileup.bed" for run, asm in all_sample_pileup_pairs]
-
-overlap_outs=[f"{global_output_dir}/{sample}/run_pileup_counts/{run}_{asm}/{run}_{asm}_pileup_intervals_overlapping_peaks.bed" for run, asm in all_sample_pileup_pairs]
-
-max_score_per_consensus_peak=[f"{global_output_dir}/{sample}/run_pileup_counts/{run}_{asm}/{run}_{asm}_max_score_per_peak.bed" for run, asm in all_sample_pileup_pairs]
-#print(max_score_per_consensus_peak)
-
-Target=[CHM13_global_peaks_surjected_onto_all_asm, NonCHM13_global_peaks_surjected_onto_all_asm]
-
-if graph=="NA":
-    graph = f"{graphs_dir}/{sample}.full_all_chrs.gbz"
-
-if GRAPH_ONLY == True:
-    All_Targets = f"{graphs_dir}/{sample}.full_all_chrs.gbz"
+## tools that read sequence from the main reference by position need it uncompressed and indexed (.fai). A
+## gzipped one is decompressed, and a plain one without an index is linked, into the output folder and indexed
+## there (so nothing is written next to the reference); an indexed plain one is used as is
+if MAIN_REF_FASTA.endswith(".gz") or not os.path.exists(f"{MAIN_REF_FASTA}.fai"):
+    MAIN_REF_FASTA_PLAIN = f"{global_output_dir}/{sample}/{sample}_Ref.fa"
 else:
-    All_Targets = f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
+    MAIN_REF_FASTA_PLAIN = MAIN_REF_FASTA
 
-print(All_Targets)
-
+# the final outputs; All_Targets is set by the mode's rules file (included at the end), so it's read
+# through a function, which runs after everything is loaded
 rule all:
     input:
-        #f"{global_output_dir}/{sample}/{sample}_All_consensus_peaks_moved_to_GRCh38.bed",
-        #f"{global_output_dir}/{sample}/{sample}_orig_called_peaks_intersect_transferred_consensus_peaks.bed",
-        #f"{global_output_dir}/{sample}/{sample}_all_orig_surjected_peaks_intersect_consensus_peaks.bed",
-        #f"{global_output_dir}/{sample}/{sample}_max_score_per_peak_all_samples.bed",
-        #f"{global_output_dir}/{sample}/{sample}_combined_tranferred_peaks_all_samples.bed",
-        #f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed",
-        #f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
-        All_Targets
+        lambda wildcards: All_Targets
+
+## rules used in both modes
 
 rule combine_peaks:
     input:
         input_tbl["peaks_file"].tolist()
     output:
-        combined_peaks_bed = f"{global_output_dir}/{sample}/{sample}_combined_peaks.bed.gz"
+        combined_peaks_bed = temp(f"{global_output_dir}/{sample}/{sample}_combined_peaks.bed.gz")
     run:
         import gzip
 
@@ -188,862 +143,30 @@ rule combine_peaks:
                             "\t".join(fields[:3] + [sample_name]) + "\n"
                         )
 
-rule make_bed_with_haps_and_peakIDs:
+# the main reference, uncompressed and indexed in the output folder (only used when it's gzipped or has no index)
+rule prepare_main_ref_fasta:
     input:
-        input_bed=rules.combine_peaks.output.combined_peaks_bed
+        fasta=MAIN_REF_FASTA
     output:
-        output_bed=f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs.bed.gz",
-        output_bed_unzipped=f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs.bed"
+        fasta=temp(f"{global_output_dir}/{sample}/{sample}_Ref.fa"),
+        # indexed here so the index is temporary too (tools would otherwise leave one behind)
+        fai=temp(f"{global_output_dir}/{sample}/{sample}_Ref.fa.fai")
     conda:
         "envs/env.yml"
+    log:
+        f"{log_dir}/prepare_main_ref_fasta.log"
     shell:
         """
-        (
-            gzip -cd "{input.input_bed}" 2>/dev/null || cat "{input.input_bed}"
-        ) | awk -F'\t' '
-            BEGIN {{ OFS="\t" }}
-            /unassigned/ {{ next }}
-            NR == 1 {{
-                if ($2 ~ /^[0-9]+$/) {{
-                    header = "#chrom\tstart\tend"
-                    for (i = 4; i <= NF; i++) {{
-                        header = header "\tcol" i
-                    }}
-                    print header, "peak_id"
-                }} else {{
-                    print $0, "peak_id"
-                    next
-                }}
-            }}
-            {{
-                peak_id = $1"_"$2"_"$3
-                print $0, peak_id
-            }}' > {output.output_bed_unzipped}
-
-            colname="peak_id"
-            col_num=$(awk -F '\\t' -v colname="$colname" ' 
-            NR==1 {{
-                for (i=1; i <= NF; i++)
-                    if ($i == colname) 
-                        print i
-            }}' "{output.output_bed_unzipped}")
-
-            duplicates=$(tail -n +2 "{output.output_bed_unzipped}" \
-            | cut -f"$col_num" \
-            | sort \
-            | uniq -c \
-            | awk '$1 > 1 {{print $2}}')
-
-            dup_array=($duplicates)
-
-            if [[ -n "$duplicates" ]]; then
-                echo "Duplicates found:"
-                grep -v -F -f <(printf "%s\n" "${{dup_array[@]}}") {output.output_bed_unzipped} |  bgzip > {output.output_bed}
-            else
-                bgzip -c {output.output_bed_unzipped} > {output.output_bed}
-            fi
-
+        exec > {log} 2>&1
+        case {input.fasta} in
+            *.gz) zcat {input.fasta} > {output.fasta} ;;
+            *) ln -sfn "$(readlink -f {input.fasta})" {output.fasta} ;;
+        esac
+        samtools faidx {output.fasta}
         """
 
-rule combine_fastas:
-    input:
-        ALL_FASTAS
-    output:
-        combined_fastas = temp(f"{global_output_dir}/{sample}/{sample}_combined_fastas.fa")
-    shell:
-        r"""
-        for f in {input}; do
-            if [[ "$f" == *.gz ]]; then
-                zcat "$f"
-            else
-                cat "$f"
-            fi
-        done > {output.combined_fastas}
-        """
-
-rule make_graph:
-    input:
-        graph_input = graph_input_file
-        #hap1_fasta_path = rules.make_fasta_files.output.hap1_fasta,
-        #hap2_fasta_path = rules.make_fasta_files.output.hap2_fasta,
-        #chm13_path=config.get("CHM13_fasta_path"),
-        #hg38_path=config.get("GRCh38_fasta_path")
-    output:
-        #cp_graph_input=f"{graphs_dir}/{{sample}}/{{sample}}_graph_input.txt",
-        cp_graph=f"{graphs_dir}/{sample}.full.gbz"
-    conda:
-        "envs/env.yml"
-    #params:
-    #    hap1_new_tag=get_hap1_new_tag,
-    #    hap2_new_tag=get_hap2_new_tag
-    threads: TEMP_THREADS
-    resources:
-        mem_mb=GRAPH_MEM,
-        runtime=GRAPH_RUNTIME
-    shell:
-        """
-        if [ -d "{graphs_dir}/js" ]; then
-            rm -r {graphs_dir}/js
-        fi
-        #rm -r {graphs_dir}/js
-
-        cat {input.graph_input} > {graphs_dir}/inputs.txt
-
-        sample_list=$(cat {input.graph_input} | cut -f1) 
-
-        if [[ "{SPLIT_GRAPH}" == "False" ]]; then
-            cactus-pangenome \
-            {graphs_dir}/js \
-            {graphs_dir}/inputs.txt \
-            --outDir {graphs_dir}/ \
-            --outName {sample} \
-            --reference $sample_list \
-            --vcfReference CHM13 GRCh38 \
-            --defaultCores 32 \
-            --gfa full \
-            --vcf full \
-            --gbz full \
-            --filter 0 \
-            --noSplit \
-            --binariesMode singularity
-        else
-            cactus-pangenome \
-            {graphs_dir}/js \
-            {graphs_dir}/inputs.txt \
-            --outDir {graphs_dir}/ \
-            --outName {sample} \
-            --reference $sample_list \
-            --vcfReference CHM13 GRCh38 \
-            --defaultCores 32 \
-            --gfa full \
-            --vcf full \
-            --gbz full \
-            --filter 0 \
-            --binariesMode singularity
-        fi
-
-        """
-
-rule make_list_of_chrs_in_graph_for_modifying_graph:
-    input: 
-        #graph=get_graph
-        graph=rules.make_graph.output.cp_graph
-    output:
-        chrs_to_keep_list=temp(f"{graphs_dir}/{sample}-chrs_list_for_graph_mod.txt")
-    #params:
-    #    common_chr_tag = get_common_chr_tag,
-        #vg=f"{vg}"
-    conda:
-        "envs/env.yml"
-    threads: 1
-    resources:
-        mem_mb=10240,
-        runtime=30
-    shell:
-        """
-        #vg='singularity exec /mmfs1/gscratch/stergachislab/minkinaa/vg_v1.65.0.sif vg'
-        vg paths -M -x {input.graph} | grep -v CHM13 | grep -v GRCh38 | grep -v NAME | cut -f1 | uniq > {output.chrs_to_keep_list}
-        """
-
-rule make_fasta_of_missing_chrs:
-    input:
-        fasta=rules.combine_fastas.output.combined_fastas,
-        chrs_in_graph=rules.make_list_of_chrs_in_graph_for_modifying_graph.output.chrs_to_keep_list,
-        graph_prefixes_input=graph_prefixes_input
-    output:
-        fasta_of_missing_chrs=temp(f"{graphs_dir}/{sample}-missing_chrs.fa")
-    #params:
-    #    hap1_orig_subtag=get_hap1_subtag,
-    #    hap2_orig_subtag=get_hap2_subtag,
-    #    hap1_new_tag=get_hap1_new_tag,
-    #    hap2_new_tag=get_hap2_new_tag
-    conda:
-        "envs/env.yml"
-    shell:
-        """
-        python {WORKFLOW_DIR}/scripts/make_fasta_of_missing_contigs_multiple_asms.py \
-            {input.chrs_in_graph} \
-            {input.graph_prefixes_input} \
-            {input.fasta} \
-            {output.fasta_of_missing_chrs} \
-        """
-
-rule make_graph_with_missing_chrs:
-    input:
-        missing_chr_fasta=rules.make_fasta_of_missing_chrs.output.fasta_of_missing_chrs,
-        orig_graph=rules.make_graph.output.cp_graph
-    output:
-        graph_of_missing_contigs=temp(f"{graphs_dir}/{sample}.missing_contigs_graph.vg"),
-        orig_graph_vg=temp(f"{graphs_dir}/{sample}.full.vg"),
-        full_graph_vg=temp(f"{graphs_dir}/{sample}.full_graph_w_all_contigs.vg"),
-        full_graph_gfa=temp(f"{graphs_dir}/{sample}.full_graph_w_all_contigs.gfa"),
-        full_graph=f"{graphs_dir}/{sample}.full_all_chrs.gbz"
-    conda:
-        "envs/env.yml"
-    resources:
-        mem_mb=50000,
-        runtime=60*2
-    shell:
-        """
-        LINE_COUNT=$(wc -l < {input.missing_chr_fasta})
-        echo $LINE_COUNT
-
-        if [ $LINE_COUNT -gt 1 ]; then
-            vg construct -r {input.missing_chr_fasta} > {output.graph_of_missing_contigs}
-            vg convert --packed-out --no-translation {input.orig_graph} > {output.orig_graph_vg}
-            vg combine {output.orig_graph_vg} {output.graph_of_missing_contigs} > {output.full_graph_vg}
-            vg convert -f {output.full_graph_vg} > {output.full_graph_gfa}
-            vg gbwt -G {output.full_graph_gfa} --gbz-format -g {output.full_graph}
-        else
-            #vg convert --packed-out --no-translation {input.orig_graph} > {output.orig_graph_vg}
-            # make files that will be deleted so rule doesn't crash
-            touch {output.graph_of_missing_contigs}
-            touch {output.orig_graph_vg}
-            touch {output.full_graph_vg}
-            touch {output.full_graph_gfa}
-            cp {input.orig_graph} {output.full_graph}
-        fi
-
-        """
-
-rule move_peaks_to_chm13:
-    input:
-        graph=graph,
-        fasta=rules.combine_fastas.output.combined_fastas,
-        bed=rules.make_bed_with_haps_and_peakIDs.output.output_bed,
-        graph_prefixes_input=graph_prefixes_input
-    output:
-        fibertigs_out=temp(f"{global_output_dir}/{sample}/{sample}_all_original_peaks_fibertigs.bam"),
-        fibertigs_for_inject_out=temp(f"{global_output_dir}/{sample}/{sample}_all_original_peaks_fibertigs_ToInject.bam"),
-        gam=f"{global_output_dir}/{sample}/{sample}_all_original_peaks_fibertigs_ToInject.gam",
-        surjected=temp(f"{global_output_dir}/{sample}/{sample}_all_original_peaks_fibertigs_surjected_on_CHM13.bam"),
-        surj_processed=temp(f"{global_output_dir}/{sample}/{sample}_all_original_peaks_fibertigs_surjected_on_CHM13_processed.bam"),
-        bed_final=f"{global_output_dir}/{sample}/{sample}_all_original_peaks_fibertigs_surjected_on_CHM13_processed.bed"
-    params:
-        asm_to_surject_onto="CHM13"
-    conda:
-        "envs/env.yml"
-    threads: 32
-    resources:
-        mem_mb=200000,
-        runtime=60*24
-    shell:
-        """
-        sh {WORKFLOW_DIR}/scripts/inject_surject_bed_w_fibertigs.txt \
-            {input.bed} \
-            {input.graph} \
-            {input.fasta} \
-            {PATH_TO_FT} \
-            {FT_PARAM} \
-            {input.graph_prefixes_input} \
-            {output.fibertigs_out} \
-            {output.fibertigs_for_inject_out} \
-            {output.gam} \
-            {output.surjected} \
-            {output.surj_processed} \
-            {output.bed_final} \
-            {WORKFLOW_DIR}/scripts \
-            {params.asm_to_surject_onto}
-        
-        #echo "CHM13" > {assemblies_surjected_onto_file}
-        """
-
-rule make_untransferred_peaks_list:
-    input:
-        orig_bed = rules.make_bed_with_haps_and_peakIDs.output.output_bed,
-        surj_bed = rules.move_peaks_to_chm13.output.bed_final,
-        graph_prefixes_input=graph_prefixes_input
-    output:
-        orig_bed_annotated = f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info.bed",
-        orig_bed_annotated_surjected = f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_SURJECTED_ONTO_CHM13.bed",
-        orig_bed_annotated_not_surjected = f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13.bed",
-    params:
-        last_surjected_asm="CHM13"
-    conda:
-        "envs/R_env.yml"
-    threads: 4
-    resources:
-        mem_mb=50000,
-        runtime=60*5
-    shell:
-        """
-        Rscript {WORKFLOW_DIR}/scripts/260126_annotate_original_peak_file_w_surjection_info.R \
-            {input.orig_bed} \
-            {input.surj_bed} \
-            {params.last_surjected_asm} \
-            {output.orig_bed_annotated} \
-            {output.orig_bed_annotated_surjected} \
-            {output.orig_bed_annotated_not_surjected} \
-            {next_asm_file} \
-            {input.graph_prefixes_input} \
-            {length_change_param}
-
-        """
-
-rule make_gam_of_untransferred_peaks:
-    input:
-        graph=graph,
-        fasta=rules.combine_fastas.output.combined_fastas,
-        bed=rules.make_untransferred_peaks_list.output.orig_bed_annotated_not_surjected,
-        graph_prefixes_input=graph_prefixes_input
-    output:
-        fibertigs_out=temp(f"{global_output_dir}/{sample}/{sample}_untransferred_TEMP_peaks_fibertigs.bam"),
-        fibertigs_for_inject_out=temp(f"{global_output_dir}/{sample}/{sample}_untransferred_TEMP_peaks_fibertigs_ToInject.bam"),
-        gam=f"{global_output_dir}/{sample}/{sample}_NonCHM13_peaks.gam"
-    conda:
-        "envs/env.yml"
-    threads: 32
-    resources:
-        mem_mb=300000,
-        runtime=60*24
-    shell:
-        """
-        sed -i '1s/^/#/' {input.bed}
-
-        sh {WORKFLOW_DIR}/scripts/260127_inject_w_fibertigs.txt \
-            {input.bed} \
-            {input.graph} \
-            {input.fasta} \
-            {PATH_TO_FT} \
-            {FT_PARAM} \
-            {input.graph_prefixes_input} \
-            {output.fibertigs_out} \
-            {output.fibertigs_for_inject_out} \
-            {output.gam} \
-            {WORKFLOW_DIR}/scripts \
-
-        """
-
-rule surjection_loop:
-    input:
-        graph=graph,
-        #bed=rules.add_peak_annotations_in_R.output.orig_bed_annotated_noCHM13,
-        gam=rules.make_gam_of_untransferred_peaks.output.gam,
-        graph_prefixes_input=graph_prefixes_input,
-        annotated_bed_noCHM13=rules.make_untransferred_peaks_list.output.orig_bed_annotated_not_surjected
-    output:
-        annotated_bed_noCHM13_to_modify=temp(f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13_to_mod.bed"),
-        surjected=temp(f"{global_output_dir}/{sample}/{sample}_SurjLoop_TEMP_surjected.bam"),
-        surj_processed=temp(f"{global_output_dir}/{sample}/{sample}_SurjLoop_TEMP_surjected_processed.bam"),
-        bed_final=temp(f"{global_output_dir}/{sample}/{sample}_SurjLoop_TEMP_surjected_processed.bed"),
-        temp_annotated_bed=temp(f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13_w_TempForAnnotationLoop.bed"),
-        fully_annotated_bed=f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13_w_FullyAnnotated.bed"
-    conda:
-        "envs/env_and_R_env_combined.yml"
-    threads: 16
-    resources:
-        mem_mb=300000,
-        runtime=60*24
-    shell:
-        """
-        next_asm_for_file=$(cat {input.annotated_bed_noCHM13} | cut -f6 | sort | uniq -c | sort -nr | head -1 | awk '{{print $2}}')
-        echo $next_asm_for_file > {next_asm_file}
-
-        next_asm=$(<{next_asm_file})
-        echo "CHM13" > {assemblies_surjected_onto_file}
-
-        cp {input.annotated_bed_noCHM13} {output.annotated_bed_noCHM13_to_modify}
-
-        while [[ "$next_asm" != "NONE" ]]; do
-            echo $next_asm
-            asm_graph_name=$( awk -v k="$next_asm" '$1 == k {{ print $2; exit }}' {input.graph_prefixes_input} )
-            last_asm=$(tail -n 1 {assemblies_surjected_onto_file})
-            
-            if [[ "$asm_graph_name" == "$last_asm" ]]; then
-                break
-            fi
-            
-            grep -q "$asm_graph_name" {assemblies_surjected_onto_file} && break
-
-            echo $asm_graph_name >> {assemblies_surjected_onto_file}
-
-            ### surject and process
-
-            sh {WORKFLOW_DIR}/scripts/260127_surject_w_fibertigs.txt \
-                {input.graph} \
-                {PATH_TO_FT} \
-                {input.graph_prefixes_input} \
-                {input.gam} \
-                {output.surjected} \
-                {output.surj_processed} \
-                {output.bed_final} \
-                {WORKFLOW_DIR}/scripts \
-                $asm_graph_name
-
-            ### run R script to add info 
-            Rscript {WORKFLOW_DIR}/scripts/260126_annotate_subsequent_peak_files_w_surjection_info.R \
-                {output.annotated_bed_noCHM13_to_modify} \
-                {output.bed_final} \
-                $next_asm \
-                {output.temp_annotated_bed} \
-                {next_asm_file} \
-                {length_change_param}
-
-            mv {output.temp_annotated_bed} {output.annotated_bed_noCHM13_to_modify}     
-
-            next_asm=$(<"{next_asm_file}")
-        done
-
-        cp {output.annotated_bed_noCHM13_to_modify} {output.temp_annotated_bed}
-        cp {output.annotated_bed_noCHM13_to_modify} {output.fully_annotated_bed}
-
-        """
-
-rule call_global_peaks_on_chm13:
-    input:
-        bed=rules.make_untransferred_peaks_list.output.orig_bed_annotated_surjected
-    output:
-        bed_4col=f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_SURJECTED_ONTO_CHM13_4col.bed",
-        mock_bam=temp(f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_SURJECTED_ONTO_CHM13_4col_mockbam.bam"),
-        chm13_peaks=f"{global_output_dir}/{sample}/{sample}_CHM13_shared_peaks.bed",
-        chm13_peaks_5col=temp(f"{global_output_dir}/{sample}/{sample}_CHM13_shared_peaks_5col.bed"),
-        chm13_peaks_5col_w_peak_id=f"{global_output_dir}/{sample}/{sample}_CHM13_shared_peaks_6col.bed",
-        chm13_peaks_5col_w_peak_id_zipped=f"{global_output_dir}/{sample}/{sample}_CHM13_shared_peaks_6col.bed.gz"
-    conda:
-        "envs/env.yml"
-    resources:
-        mem_mb=150000,
-        runtime=60*24
-    shell:
-        """
-        rm -f {global_output_dir}/{sample}/{sample}*SURJECTED_ONTO_CHM13_4col_mockbam.bam.tmp*
-        awk 'NR==1 {{print "#chrom\tstart\tend\tsample"; next}} {{print $(NF-2), $(NF-1), $NF, $4"_"$(NF-2)}}' OFS="\t" {input.bed} > {output.bed_4col}
-        {PATH_TO_FT} mock-fire {output.bed_4col} | samtools sort -o {output.mock_bam} --write-index
-        {PATH_TO_FT} call-peaks {output.mock_bam} --min-fire-coverage 1 --min-fire-frac 0.01 > {output.chm13_peaks}
-        cat {output.chm13_peaks} | cut -f1,2,3 > {output.chm13_peaks_5col}
-
-        bash {WORKFLOW_DIR}/scripts/add_peak_id_col_to_bed_file.sh \
-            {output.chm13_peaks_5col} \
-            {output.chm13_peaks_5col_w_peak_id} \
-            {output.chm13_peaks_5col_w_peak_id_zipped}
-        """
-
-rule call_global_peaks_on_nonCHM13:
-    input:
-        bed=rules.surjection_loop.output.fully_annotated_bed
-    output:
-        bed_4col=f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13_w_FullyAnnotated_4col.bed",
-        mock_bam=temp(f"{global_output_dir}/{sample}/{sample}_wHapsAndPeakIDs_w_surject_info_NOT_SURJECTED_ONTO_CHM13_w_FullyAnnotated_4col_mockbam.bam"),
-        NONchm13_peaks=f"{global_output_dir}/{sample}/{sample}_NonCHM13_shared_peaks.bed",
-        NONchm13_peaks_5col=temp(f"{global_output_dir}/{sample}/{sample}_NonCHM13_shared_peaks_5col.bed"),
-        NONchm13_peaks_5col_w_peak_id=f"{global_output_dir}/{sample}/{sample}_NonCHM13_shared_peaks_6col.bed",
-        NONchm13_peaks_5col_w_peak_id_zipped=f"{global_output_dir}/{sample}/{sample}_NonCHM13_shared_peaks_6col.bed.gz"
-    conda:
-        "envs/env.yml"
-    resources:
-        mem_mb=150000,
-        runtime=60*24
-    shell:
-        """
-        rm -f {global_output_dir}/{sample}/{sample}*NOT_SURJECTED_ONTO_CHM13_w_FullyAnnotated_4col_mockbam.bam.tmp*
-
-        cat {input.bed} | awk '$7!="NONE"' | awk 'NR==1 {{print "#chrom\tstart\tend\tsample"; next}} {{print $(NF-2), $(NF-1), $NF, $4"_"$(NF-2)}}' OFS="\t" > {output.bed_4col}
-        {PATH_TO_FT} mock-fire {output.bed_4col} | samtools sort -o {output.mock_bam} --write-index
-        {PATH_TO_FT} call-peaks {output.mock_bam} --min-fire-coverage 1 --min-fire-frac 0.01 > {output.NONchm13_peaks}
-        cat {output.NONchm13_peaks} | cut -f1,2,3 > {output.NONchm13_peaks_5col}
-
-        bash {WORKFLOW_DIR}/scripts/add_peak_id_col_to_bed_file.sh \
-            {output.NONchm13_peaks_5col} \
-            {output.NONchm13_peaks_5col_w_peak_id} \
-            {output.NONchm13_peaks_5col_w_peak_id_zipped}
-        """
-
-rule make_chm13_global_peaks_gam:
-    input:
-        bed=rules.call_global_peaks_on_chm13.output.chm13_peaks_5col_w_peak_id,
-        graph=graph,
-        fasta=chm13_fasta
-        #graph_prefixes_input=graph_prefixes_input
-    output:
-        fibertigs_out=temp(f"{global_output_dir}/{sample}/{sample}_CHM13_TEMP_peaks_fibertigs.bam"),
-        fibertigs_for_inject_out=temp(f"{global_output_dir}/{sample}/{sample}_CHM13_TEMP_peaks_fibertigs_ToInject.bam"),
-        gam=f"{global_output_dir}/{sample}/{sample}_CHM13_global_peaks.gam"
-    conda:
-        "envs/env.yml"
-    resources:
-        mem_mb=100000,
-        runtime=60*24
-    shell:
-        """
-        sh {WORKFLOW_DIR}/scripts/260127_inject_w_fibertigs_single_asm.txt \
-            {input.bed} \
-            {input.graph} \
-            {input.fasta} \
-            {PATH_TO_FT} \
-            {FT_PARAM} \
-            CHM13 \
-            {output.fibertigs_out} \
-            {output.fibertigs_for_inject_out} \
-            {output.gam} \
-            {WORKFLOW_DIR}/scripts
-        """
-
-rule make_NONchm13_global_peaks_gam:
-    input:
-        bed=rules.call_global_peaks_on_nonCHM13.output.NONchm13_peaks_5col_w_peak_id,
-        graph=graph,
-        fasta=rules.combine_fastas.output.combined_fastas,
-        graph_prefixes_input=graph_prefixes_input
-    output:
-        fibertigs_out=temp(f"{global_output_dir}/{sample}/{sample}_NonCHM13_TEMP_peaks_fibertigs.bam"),
-        fibertigs_for_inject_out=temp(f"{global_output_dir}/{sample}/{sample}_NonCHM13_TEMP_peaks_fibertigs_ToInject.bam"),
-        gam=f"{global_output_dir}/{sample}/{sample}_NonCHM13_global_peaks.gam"
-        #peaks_on_asm=f"{global_output_dir}/{sample}/{peaks_on_all_asm}/{{asm}}/{sample}_NONchm13_peaks_on_{{asm}}.bed"
-    conda:
-        "envs/env.yml"
-    resources:
-        mem_mb=200000,
-        runtime=60*24
-    shell:
-        """
-        sh {WORKFLOW_DIR}/scripts/260127_inject_w_fibertigs.txt \
-            {input.bed} \
-            {input.graph} \
-            {input.fasta} \
-            {PATH_TO_FT} \
-            {FT_PARAM} \
-            {input.graph_prefixes_input} \
-            {output.fibertigs_out} \
-            {output.fibertigs_for_inject_out} \
-            {output.gam} \
-            {WORKFLOW_DIR}/scripts
-        """
-
-rule surject_global_chm13_peaks_onto_all_assemblies:
-    input:
-        gam=rules.make_chm13_global_peaks_gam.output.gam,
-        graph=graph,
-        graph_prefixes_input=graph_prefixes_input
-    output:
-        surjected=temp(f"{global_output_dir}/{sample}/CHM13_global_peaks_surjected_onto_asms/{sample}_TEMP_surjected_onto_{{asm}}.bam"),
-        surj_processed=temp(f"{global_output_dir}/{sample}/CHM13_global_peaks_surjected_onto_asms/{sample}_TEMP_surjected_onto_{{asm}}_processed.bam"),
-        bed_final=f"{global_output_dir}/{sample}/CHM13_global_peaks_surjected_onto_asms/{sample}_CHM13_global_peaks_surjected_onto_{{asm}}.bed"
-    conda:
-        "envs/env.yml"
-    threads: 32
-    resources:
-        mem_mb=200000,
-        runtime=60*24
-    shell:
-        """
-            sh {WORKFLOW_DIR}/scripts/260127_surject_w_fibertigs.txt \
-                {input.graph} \
-                {PATH_TO_FT} \
-                {input.graph_prefixes_input} \
-                {input.gam} \
-                {output.surjected} \
-                {output.surj_processed} \
-                {output.bed_final} \
-                {WORKFLOW_DIR}/scripts \
-                {wildcards.asm}
-        """
-
-rule surject_global_Nonchm13_peaks_onto_all_assemblies:
-    input:
-        gam=rules.make_NONchm13_global_peaks_gam.output.gam,
-        graph=graph,
-        graph_prefixes_input=graph_prefixes_input
-    output:
-        surjected=temp(f"{global_output_dir}/{sample}/nonCHM13_global_peaks_surjected_onto_asms/{sample}_TEMP_surjected_onto_{{asm}}.bam"),
-        surj_processed=temp(f"{global_output_dir}/{sample}/nonCHM13_global_peaks_surjected_onto_asms/{sample}_TEMP_surjected_onto_{{asm}}_processed.bam"),
-        bed_final=f"{global_output_dir}/{sample}/nonCHM13_global_peaks_surjected_onto_asms/{sample}_nonCHM13_global_peaks_surjected_onto_{{asm}}.bed",
-    conda:
-        "envs/env.yml"
-    threads: 32
-    resources:
-        mem_mb=300000,
-        runtime=60*24
-    shell:
-        """
-            sh {WORKFLOW_DIR}/scripts/260127_surject_w_fibertigs.txt \
-                {input.graph} \
-                {PATH_TO_FT} \
-                {input.graph_prefixes_input} \
-                {input.gam} \
-                {output.surjected} \
-                {output.surj_processed} \
-                {output.bed_final} \
-                {WORKFLOW_DIR}/scripts \
-                {wildcards.asm}
-        """
-
-rule combine_all_consensus_peaks:
-    input:
-        chm13_consensus_peaks=rules.call_global_peaks_on_chm13.output.chm13_peaks_5col_w_peak_id,
-        nonchm13_consensus_peaks=rules.call_global_peaks_on_nonCHM13.output.NONchm13_peaks_5col_w_peak_id
-    output:
-        consensus_bed_combined=f"{global_output_dir}/{sample}/{sample}_ALL_consensus_peaks_combined.bed"
-    conda:
-        "envs/env.yml"
-    shell:
-        """
-        #cat {input.chm13_consensus_peaks} {input.nonchm13_consensus_peaks} > {output.consensus_bed_combined}
-        cat {input.chm13_consensus_peaks} <( grep -v "#chrom" {input.nonchm13_consensus_peaks}) > {output.consensus_bed_combined}
-        """
-
-rule combined_CHM13_and_NonCHM13_transferred_peak_files:
-    input:
-        chm13_peaks_bed=rules.surject_global_chm13_peaks_onto_all_assemblies.output.bed_final,
-        NonChm13_peaks_bed=rules.surject_global_Nonchm13_peaks_onto_all_assemblies.output.bed_final
-    output:
-        bed_combined=f"{global_output_dir}/{sample}/Combined_global_peaks_surjected_onto_asms/{sample}_ALL_global_peaks_surjected_onto_{{asm}}.bed"
-    conda:
-        "envs/env.yml"
-    shell:
-        """
-        cat {input.chm13_peaks_bed} {input.NonChm13_peaks_bed} > {output.bed_combined}
-        """
-
-rule subset_pileup_file:
-    input:
-        pileup=get_pileup,
-        graph_prefixes_input=graph_prefixes_input
-    output:
-        mod_pileup=temp(f"{global_output_dir}/{sample}/run_pileup_counts/{{run}}_{{asm}}/{{run}}_{{asm}}_modified_pileup.bed")
-    conda:
-        "envs/env.yml"
-    resources:
-        mem_mb=50000,
-        runtime=60
-    shell:
-        """
-        sample_hap_name=$(cat {input.graph_prefixes_input} | grep "{wildcards.asm}" | cut -f1)
-        zcat {input.pileup} | grep "${{sample_hap_name}}" | cut -f1-6 > {output.mod_pileup}
-        """
-
-rule intersect_peaks_and_pileup:
-    input:
-        mod_pileup=rules.subset_pileup_file.output.mod_pileup,
-        peaks=rules.combined_CHM13_and_NonCHM13_transferred_peak_files.output.bed_combined
-    output:
-        overlaps=f"{global_output_dir}/{sample}/run_pileup_counts/{{run}}_{{asm}}/{{run}}_{{asm}}_pileup_intervals_overlapping_peaks.bed"
-    conda:
-        "envs/env.yml"
-    resources:
-        mem_mb=50000,
-        runtime=60
-    shell:
-        """
-        bedtools intersect -a {input.mod_pileup} -b {input.peaks} -wa -wb > {output.overlaps}
-        """    
-
-rule process_intersection_file:
-    input:
-        overlaps=rules.intersect_peaks_and_pileup.output.overlaps,
-        consensus_peaks=rules.combine_all_consensus_peaks.output.consensus_bed_combined,
-        consensus_peaks_transferred=rules.combined_CHM13_and_NonCHM13_transferred_peak_files.output.bed_combined
-    output:
-        max_score_per_consensus_peak=f"{global_output_dir}/{sample}/run_pileup_counts/{{run}}_{{asm}}/{{run}}_{{asm}}_max_score_per_peak.bed"
-    conda:
-        "envs/env.yml"
-    resources:
-        mem_mb=50000,
-        runtime=60
-    shell:
-        """
-        python3 {WORKFLOW_DIR}/scripts/260217_find_max_fire_score_per_consenses_peak.py \
-            {input.overlaps} \
-            {input.consensus_peaks} \
-            {input.consensus_peaks_transferred} \
-            {wildcards.run}_{wildcards.asm} \
-            {output.max_score_per_consensus_peak}
-        """
-
-rule combine_max_score_outputs:
-    input:
-        ind_input=max_score_per_consensus_peak
-    output:
-        combined_out=f"{global_output_dir}/{sample}/{sample}_max_score_per_peak_all_samples.bed"
-    conda:
-        "envs/env.yml"
-    resources:
-        mem_mb=50000,
-        runtime=60
-    shell:
-        """
-        echo "sample_id\tconsensus_peak_id\tcoverage\tfire_coverage\tscore" > {output.combined_out}
-        cat <(grep -v -h "sample_id" {input.ind_input}) >> {output.combined_out}
-        """
-
-rule combine_all_transferred_peak_files:
-    input:
-        combined_global_peaks_surjected_onto_all_asm
-    output:
-        combined_out=f"{global_output_dir}/{sample}/{sample}_combined_tranferred_peaks_all_samples.bed"
-    conda:
-        "envs/env.yml"
-    resources:
-        mem_mb=50000,
-        runtime=60
-    shell:
-        """
-        echo "chr\tstart\tend\tcons_peak_id" > {output.combined_out}
-        cat {input} >> {output.combined_out}
-        """
-
-rule surject_CHM13_consensus_peaks_onto_GRCh38:
-    input:
-        gam=rules.make_chm13_global_peaks_gam.output.gam,
-        graph=graph,
-        graph_prefixes_input=graph_prefixes_input
-    output:
-        surjected=temp(f"{global_output_dir}/{sample}/{sample}_CHM13_consensus_peaks_moved_to_GRCh38_raw_surjected.bam"),
-        surj_processed=temp(f"{global_output_dir}/{sample}/{sample}_CHM13_consensus_peaks_moved_to_GRCh38_processed.bam"),
-        bed_final=f"{global_output_dir}/{sample}/{sample}_CHM13_consensus_peaks_moved_to_GRCh38.bed"
-    resources:
-        mem_mb=200000,
-        runtime=60*24
-    params:
-        asm_to_surject_onto="GRCh38"
-    conda:
-        "envs/env.yml"
-    shell:
-        """
-        sh {WORKFLOW_DIR}/scripts/surject_gam_w_fibertigs.txt \
-            {input.graph} \
-            {PATH_TO_FT} \
-            {input.graph_prefixes_input} \
-            {input.gam} \
-            {output.surjected} \
-            {output.surj_processed} \
-            {output.bed_final} \
-            {WORKFLOW_DIR}/scripts \
-            {params.asm_to_surject_onto}
-        """
-
-rule surject_NonCHM13_consensus_peaks_onto_GRCh38:
-    input:
-        gam=rules.make_NONchm13_global_peaks_gam.output.gam,
-        graph=graph,
-        graph_prefixes_input=graph_prefixes_input
-    output:
-        surjected=temp(f"{global_output_dir}/{sample}/{sample}_NonCHM13_consensus_peaks_moved_to_GRCh38_raw_surjected.bam"),
-        surj_processed=temp(f"{global_output_dir}/{sample}/{sample}_NonCHM13_consensus_peaks_moved_to_GRCh38_processed.bam"),
-        bed_final=f"{global_output_dir}/{sample}/{sample}_NonCHM13_consensus_peaks_moved_to_GRCh38.bed"
-    resources:
-        mem_mb=200000,
-        runtime=60*24
-    params:
-        asm_to_surject_onto="GRCh38"
-    conda:
-        "envs/env.yml"
-    shell:
-        """
-        sh {WORKFLOW_DIR}/scripts/surject_gam_w_fibertigs.txt \
-            {input.graph} \
-            {PATH_TO_FT} \
-            {input.graph_prefixes_input} \
-            {input.gam} \
-            {output.surjected} \
-            {output.surj_processed} \
-            {output.bed_final} \
-            {WORKFLOW_DIR}/scripts \
-            {params.asm_to_surject_onto}
-        """
-
-rule combine_GRCh38_transferred_peaks:
-    input:
-        chm13_peaks=rules.surject_CHM13_consensus_peaks_onto_GRCh38.output.bed_final,
-        nonchm13_peaks=rules.surject_NonCHM13_consensus_peaks_onto_GRCh38.output.bed_final 
-    output:
-        combined_out=f"{global_output_dir}/{sample}/{sample}_All_consensus_peaks_moved_to_GRCh38.bed"
-    resources:
-        mem_mb=20000,
-        runtime=60*5
-    conda:
-        "envs/env.yml"
-    shell:
-        """
-        cat {input.chm13_peaks} {input.nonchm13_peaks} > {output.combined_out}
-        """
-
-rule intersect_original_and_transferred_consensus_peaks:
-    input: 
-        orig_bed=rules.make_bed_with_haps_and_peakIDs.output.output_bed,
-        transferred_bed=rules.combine_all_transferred_peak_files.output.combined_out
-    output:
-        intersect_out=f"{global_output_dir}/{sample}/{sample}_orig_called_peaks_intersect_transferred_consensus_peaks.bed"
-    resources:
-        mem_mb=100000,
-        runtime=60*5
-    conda:
-        "envs/env.yml"
-    shell:
-        """
-        bedtools intersect -a <(zcat {input.orig_bed} | tail -n +2) -b <(cat {input.transferred_bed} | tail -n +2) -wa -wb > {output.intersect_out}
-        """
-    
-rule all_peaks_surjected_onto_consensus_assemblies:
-    input:
-        chm13=rules.make_untransferred_peaks_list.output.orig_bed_annotated_surjected,
-        non_chm13=rules.surjection_loop.output.fully_annotated_bed
-    output: 
-        out=f"{global_output_dir}/{sample}/{sample}_all_peaks_surjected_onto_consensus_assemblies_5col_for_intersect.bed"
-    resources:
-        mem_mb=20000,
-        runtime=60*2
-    conda:
-        "envs/env.yml"
-    shell:
-        """
-        cat {input.chm13} | tail -n +2 | awk  'BEGIN {{OFS="\t"}} {{print($8,$9,$10,$4,$5)}}' | grep -v NONE > {output.out}
-        cat {input.non_chm13} | tail -n +2 | awk  'BEGIN {{OFS="\t"}} {{print($8,$9,$10,$4,$5)}}' | grep -v NONE >> {output.out}
-        """
-
-rule intersect_cons_surjected_peaks_w_consensus_peaks:
-    input:
-        cons_surj_peaks=rules.all_peaks_surjected_onto_consensus_assemblies.output.out,
-        cons_peaks=rules.combine_all_consensus_peaks.output.consensus_bed_combined
-    output:
-        out=f"{global_output_dir}/{sample}/{sample}_all_orig_surjected_peaks_intersect_consensus_peaks.bed"
-    resources:
-        mem_mb=100000,
-        runtime=60*5
-    conda:
-        "envs/env.yml"
-    shell:
-        """
-        bedtools intersect -a {input.cons_surj_peaks} -b {input.cons_peaks} -wa -wb > {output.out}
-        """
-
-rule get_native_peak_sequences:
-    input:
-        combined_transferred_peaks_bed=rules.combine_all_transferred_peak_files.output.combined_out,
-        fasta=rules.combine_fastas.output.combined_fastas
-    output:
-        seq_out=f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed"
-    resources:
-        mem_mb=50000,
-        runtime=60*5
-    conda:
-        "envs/env.yml"
-    shell:
-        """
-        bedtools getfasta -bedOut -tab -name -fi {input.fasta} -bed <(cat {input.combined_transferred_peaks_bed} | tail -n +2 | bedtools sort) > {output.seq_out}
-        """
-    
-rule make_metadata_table:
-    input:
-        max_score_tbl=rules.combine_max_score_outputs.output.combined_out,
-        combined_transferred_peaks=rules.combine_all_transferred_peak_files.output.combined_out,
-        moved_to_hg38=rules.combine_GRCh38_transferred_peaks.output.combined_out,
-        orig_peaks_intersect_cons=rules.intersect_original_and_transferred_consensus_peaks.output.intersect_out,
-        surj_peaks_intersect_cons=rules.intersect_cons_surjected_peaks_w_consensus_peaks.output.out,
-        seq_file=rules.get_native_peak_sequences.output.seq_out,
-        graph_prefixes_input=graph_prefixes_input
-    output:
-        meta_tbl=f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv"
-    conda:
-        "envs/R_env.yml"
-    threads: 4
-    resources:
-        mem_mb=50000,
-        runtime=60*5
-    shell:
-        """
-        Rscript {WORKFLOW_DIR}/scripts/call_peaks_make_metadata_table.R \
-            {global_output_dir}/{sample}/ \
-            {sample} \
-            {input.graph_prefixes_input}
-        """
-
+## the rules for each mode
+if SHARED_REF:
+    include: "rules/shared_ref.smk"
+else:
+    include: "rules/graph_mode.smk"

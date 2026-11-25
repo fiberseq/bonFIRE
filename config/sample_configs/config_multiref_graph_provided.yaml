@@ -1,0 +1,19 @@
+# Multiple reference assembly mode, with a graph from an earlier bonFIRE run: consensus peak calling only.
+# Use the graph ending in .full_all_chrs.gbz. The graph-building settings (split_graph, graph_mem,
+# graph_runtime) aren't used when a graph is provided.
+output_dir: /path/to/output_dir
+prefix: my_multiref_run
+input_file: /path/to/bonFIRE/config/sample_configs/input_multiref.txt
+graph: /path/to/earlier_run/graph/earlier_run.full_all_chrs.gbz
+make_graph_only: False
+# the reference names must match the path names in the graph
+main_reference_fasta: /path/to/references/CHM13.fa
+main_reference_name: CHM13
+# optional; remove both lines to skip the secondary reference
+secondary_reference_fasta: /path/to/references/GRCh38.fa
+secondary_reference_name: GRCh38
+#ft_path: /path/to/fibertools-rs/target/release/ft
+ft_param: 1000
+Peak_length_change_param: 1
+vg_mem_mb: 80000
+vg_threads: 8
