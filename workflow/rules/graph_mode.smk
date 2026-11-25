@@ -137,8 +137,8 @@ if GRAPH_ONLY == True:
     All_Targets = f"{graphs_dir}/{sample}.full_all_chrs.gbz"
 else:
     All_Targets = [f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv.gz",
-                   f"{global_output_dir}/{sample}/{sample}_previous_peaks_nonRef_chrs.tsv",
-                   f"{global_output_dir}/{sample}/{sample}_previous_peak_checks.tsv",
+                   f"{global_output_dir}/{sample}/additional_outputs/{sample}_previous_peaks_nonRef_chrs.tsv",
+                   f"{global_output_dir}/{sample}/additional_outputs/{sample}_previous_peak_checks.tsv",
                    f"{global_output_dir}/{sample}/{sample}_consensus_peak_summary.tsv",
                    f"{global_output_dir}/{sample}/{sample}_transferred_cons_peaks_native_sequences_from_main_output.bed.gz"]
 
@@ -990,8 +990,8 @@ rule check_previous_peaks_across_assemblies:
         ref_chroms=rules.list_Ref_chromosomes.output.chroms,
         ref_peaks=rules.call_global_peaks_on_Ref.output.ref_peaks_5col_w_peak_id
     output:
-        checks=f"{global_output_dir}/{sample}/{sample}_previous_peak_checks.tsv",
-        per_asm=f"{global_output_dir}/{sample}/{sample}_previous_peak_intervals_per_asm.tsv.gz"
+        checks=f"{global_output_dir}/{sample}/additional_outputs/{sample}_previous_peak_checks.tsv",
+        per_asm=f"{global_output_dir}/{sample}/additional_outputs/{sample}_previous_peak_intervals_per_asm.tsv.gz"
     conda:
         "../envs/R_env.yml"
     threads: 4
@@ -1008,7 +1008,7 @@ rule check_previous_peaks_across_assemblies:
             {input.graph_prefixes_input} \
             {input.ref_chroms} \
             {input.ref_peaks} \
-            {global_output_dir}/{sample}/{sample} \
+            {global_output_dir}/{sample}/additional_outputs/{sample} \
             {threads}
         """
 
@@ -1199,7 +1199,7 @@ rule make_metadata_table:
         previous_peaks=expand(rules.determine_previous_peak_for_nonRef_chrs.output.previous_peaks, asm=unique_asms)
     output:
         meta_tbl=f"{global_output_dir}/{sample}/{sample}_final_tbl_w_metadata.tsv.gz",
-        previous_peaks=f"{global_output_dir}/{sample}/{sample}_previous_peaks_nonRef_chrs.tsv",
+        previous_peaks=f"{global_output_dir}/{sample}/additional_outputs/{sample}_previous_peaks_nonRef_chrs.tsv",
         peak_summary=f"{global_output_dir}/{sample}/{sample}_consensus_peak_summary.tsv"
     params:
         secondary_ref_name=SECONDARY_REF_NAME if HAS_SECONDARY_REF else "NA"

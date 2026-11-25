@@ -81,7 +81,7 @@ A peak on a contig with no CHM13 peaks, or whose neighbours are both on chromoso
 
 ### 1.7 Output: one row per non-reference peak
 
-Per assembly: `temp_previous_peak_files/[prefix]_previous_peaks_[asm].tsv`. The metadata step combines them into `[prefix]_previous_peaks_nonRef_chrs.tsv` and copies `chr` and `previous_peak` into the consensus peak summary.
+Per assembly: `temp_previous_peak_files/[prefix]_previous_peaks_[asm].tsv`. The metadata step combines them into `additional_outputs/[prefix]_previous_peaks_nonRef_chrs.tsv` and copies `chr` and `previous_peak` into the consensus peak summary.
 
 | Column | Meaning |
 |---|---|
@@ -127,7 +127,7 @@ The causes are tested in that order; a peak's `conflict_type` is the most common
 
 Some non-reference peaks land on top of a CHM13 peak in the assemblies they transfer to. In each assembly, the peak is compared with every CHM13 peak overlapping it on the contig. It counts as a **copy** there if the overlap covers at least a set fraction of each peak's length. Two thresholds are reported side by side, **10%** (loose) and **50%** (strict), in columns ending `_10pct` and `_50pct`. A peak is a **likely copy** at a threshold if it is a copy of the same CHM13 peak in at least half of the assemblies it is in. These are probably the same element as that CHM13 peak, one that didn't transfer to CHM13 from the assembly it was called on.
 
-### 2.4 Output: `[prefix]_previous_peak_checks.tsv`, one row per non-reference peak
+### 2.4 Output: `additional_outputs/[prefix]_previous_peak_checks.tsv`, one row per non-reference peak
 
 | Column | Meaning |
 |---|---|
@@ -143,7 +143,7 @@ Some non-reference peaks land on top of a CHM13 peak in the assemblies they tran
 | `copy_in_called_asm_10pct`, `n_asms_copy_10pct`, `likely_copy_of_CHM13_peak_10pct` | at 10% overlap: the CHM13 peak it copies on the called assembly, the number of assemblies where it is a copy, and the likely-copy call |
 | `copy_in_called_asm_50pct`, `n_asms_copy_50pct`, `likely_copy_of_CHM13_peak_50pct` | the same at 50% overlap |
 
-`[prefix]_previous_peak_intervals_per_asm.tsv.gz` has the underlying rows: one per peak and assembly, with the interval, the neighbours' kind and direction, the most-overlapping CHM13 peak and its overlap (`reciprocal_overlap`, the smaller of the two peaks' overlapped fractions; `is_copy_10`, `is_copy_50`), and whether the assembly agrees with the called one.
+`additional_outputs/[prefix]_previous_peak_intervals_per_asm.tsv.gz` has the underlying rows: one per peak and assembly, with the interval, the neighbours' kind and direction, the most-overlapping CHM13 peak and its overlap (`reciprocal_overlap`, the smaller of the two peaks' overlapped fractions; `is_copy_10`, `is_copy_50`), and whether the assembly agrees with the called one.
 
 ## Things to keep in mind
 
